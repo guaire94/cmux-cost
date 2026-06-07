@@ -28,6 +28,18 @@ export interface CostResult {
   unknownModels: string[];
 }
 
+/** A Claude account = one config dir (e.g. ~/.claude-talabat) and its label. */
+export interface Account {
+  dir: string; // absolute path to the config dir (NOT the projects subdir)
+  label: string; // human label shown in the report, e.g. "Talabat"
+}
+
+/** A cmux workspace a session ran in. */
+export interface Workspace {
+  id: string; // CMUX_WORKSPACE_ID (UUID)
+  title: string; // e.g. "[Talabat] Flutter App"
+}
+
 /** A single agent transcript (main session or one subagent/teammate). */
 export interface Transcript {
   /** session id (main) or agent id (teammate) */
@@ -43,6 +55,7 @@ export interface Transcript {
 /** A session = its main transcript plus any subagent transcripts. */
 export interface Session {
   id: string;
+  account: Account; // which Claude account this session belongs to
   project: string;
   mainPath: string;
   main: Transcript;
