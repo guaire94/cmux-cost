@@ -59,18 +59,38 @@ describe("parseTranscript", () => {
 });
 
 describe("extractLabel", () => {
-  it("prefers text after a 'Your scope:' marker", () => {
+  it("prefers a teammate-message summary attribute", () => {
+    const content = line({
+      type: "user",
+      message: {
+        content: '<teammate-message teammate_id="team-lead" summary="Build auth feature"> You are',
+      },
+    });
+    expect(extractLabel(content)).toBe("Build auth feature");
+  });
+
+  it("uses text after a 'Your scope:' marker when present", () => {
     const content = line({
       type: "user",
       message: { content: "Audit the app. Your scope: **Selling — listings**. Return a list." },
     });
-    expect(extractLabel(content)).toBe("**Selling — listings**. Return a list.".replace(/[*#]/g, ""));
+    expect(extractLabel(content)).toBe("Selling — listings. Return a list.");
   });
 
-  it("falls back to the first meaningful user line, truncated to 80 chars", () => {
-    const long = "x".repeat(200);
-    const content = line({ type: "user", message: { content: long } });
-    expect(extractLabel(content)).toHaveLength(80);
+  it("skips continuation/caveat boilerplate and finds a real prompt", () => {
+    const content = [
+      line({ type: "user", message: { content: "This session is being continued from a previous conversation…" } }),
+      line({ type: "user", message: { content: "Implement the scheduling feature end to end" } }),
+    ].join("\n");
+    expect(extractLabel(content)).toBe("Implement the scheduling feature end to end");
+  });
+
+  it("strips XML tags from the fallback line", () => {
+    const content = line({
+      type: "user",
+      message: { content: "<wrapper>do the thing properly</wrapper>" },
+    });
+    expect(extractLabel(content)).toBe("do the thing properly");
   });
 
   it("returns undefined when no user text exists", () => {

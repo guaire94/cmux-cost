@@ -55,11 +55,15 @@ export function parseFile(path: string): Map<string, Usage> {
 }
 
 /**
- * Extract a short human label for a teammate/subagent from its transcript:
- * the text following a "Your scope:" marker if present, else the first
- * meaningful prompt line, truncated.
+ * Extract a short human label for a teammate/subagent from its transcript.
+ * Preference order:
+ *   1. a `summary="..."` attribute (cmux team teammates carry one), then
+ *   2. text after a "Your scope:" marker (workflow/Explore subagents), then
+ *   3. the first non-boilerplate prompt line.
+ * Tags are stripped and the result is truncated.
  */
 export function extractLabel(content: string): string | undefined {
+  let fallback: string | undefined;
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -71,13 +75,38 @@ export function extractLabel(content: string): string | undefined {
     }
     const text = messageText(obj);
     if (!text) continue;
+
+    const summary = text.match(/summary="([^"]+)"/);
+    if (summary?.[1]) return clean(summary[1]).slice(0, 80);
+
     const marker = text.indexOf("Your scope:");
-    const raw =
-      marker >= 0 ? text.slice(marker + "Your scope:".length) : text;
-    const cleaned = raw.replace(/\s+/g, " ").replace(/[*#]/g, "").trim();
-    if (cleaned.length >= 8) return cleaned.slice(0, 80);
+    if (marker >= 0) {
+      const scoped = clean(text.slice(marker + "Your scope:".length));
+      if (scoped.length >= 4) return scoped.slice(0, 80);
+    }
+
+    const cleaned = clean(text);
+    if (!fallback && cleaned.length >= 8 && !isBoilerplate(cleaned)) {
+      fallback = cleaned.slice(0, 80);
+    }
   }
-  return undefined;
+  return fallback;
+}
+
+function clean(s: string): string {
+  return s
+    .replace(/<[^>]*>/g, " ") // drop XML-ish envelope tags
+    .replace(/[*#]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isBoilerplate(s: string): boolean {
+  return (
+    s.startsWith("This session is being continued") ||
+    s.startsWith("Caveat:") ||
+    s.startsWith("system-reminder")
+  );
 }
 
 function messageText(obj: unknown): string {
