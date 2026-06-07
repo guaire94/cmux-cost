@@ -79,8 +79,13 @@ export function extractLabel(content: string): string | undefined {
     const text = messageText(obj);
     if (!text) continue;
 
-    const summary = text.match(/summary="([^"]+)"/);
-    if (summary?.[1]) return clean(summary[1]).slice(0, 80);
+    // cmux team teammates introduce themselves: You are `data-dev` on team `x`.
+    const name = text.match(/You are [`'"]?([A-Za-z0-9_-]+)[`'"]? on team/)?.[1];
+    const summary = text.match(/summary="([^"]+)"/)?.[1];
+    if (name) {
+      return (summary ? `${name} — ${clean(summary)}` : name).slice(0, 80);
+    }
+    if (summary) return clean(summary).slice(0, 80);
 
     const marker = text.indexOf("Your scope:");
     if (marker >= 0) {

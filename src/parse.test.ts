@@ -69,11 +69,22 @@ describe("parseTranscript", () => {
 });
 
 describe("extractLabel", () => {
-  it("prefers a teammate-message summary attribute", () => {
+  it("combines the teammate's own name with its task summary", () => {
     const content = line({
       type: "user",
       message: {
-        content: '<teammate-message teammate_id="team-lead" summary="Build auth feature"> You are',
+        content:
+          '<teammate-message teammate_id="team-lead" summary="Port full mock fixtures">\nYou are `data-dev` on team `thawb`.',
+      },
+    });
+    expect(extractLabel(content)).toBe("data-dev — Port full mock fixtures");
+  });
+
+  it("uses the summary alone when there is no self-introduction", () => {
+    const content = line({
+      type: "user",
+      message: {
+        content: '<teammate-message teammate_id="team-lead" summary="Build auth feature"> work',
       },
     });
     expect(extractLabel(content)).toBe("Build auth feature");
