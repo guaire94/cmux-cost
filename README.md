@@ -69,8 +69,12 @@ cmux-cost uninstall       # remove the hook + dock control
   in (`CMUX_WORKSPACE_ID` → title via `cmux list-workspaces`) into
   `~/.cache/cmux-cost/workspaces.json`. This is captured going forward; sessions
   that ran before the hook recorded them appear under "unknown workspace".
-- The HTML report's **Breakdown** is a collapsible tree:
-  account → workspace → session → teammate, filterable by account and workspace.
+- The HTML report is **account-first**: four global totals (today / 7d / 30d /
+  all-time) sit on top, then a tab per Claude account. Selecting an account shows
+  only its data — cost-by-teammate, daily spend, and a collapsible
+  workspace → session → teammate **Breakdown** (filterable by workspace, with a
+  session search). Nothing is ever aggregated across accounts except the four
+  global totals.
 
 ## Configuration
 
