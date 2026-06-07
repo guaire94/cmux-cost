@@ -17,6 +17,10 @@ export function reportPath(): string {
   return join(cacheDir(), "report.html");
 }
 
+export function workspacesSidecarPath(): string {
+  return join(cacheDir(), "workspaces.json");
+}
+
 export function hookLogPath(): string {
   return join(cacheDir(), "hook.log");
 }
