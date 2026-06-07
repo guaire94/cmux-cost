@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { configPath } from "./paths.js";
 
+export interface AccountConfig {
+  dir: string;
+  label: string;
+  enabled: boolean;
+}
+
 export interface Config {
   currency: string;
   /** badge turns orange above this many $ for a session */
@@ -11,6 +17,8 @@ export interface Config {
   projectRoots: string[];
   /** raw model id -> OpenRouter model id */
   priceOverrides: Record<string, string>;
+  /** Claude accounts to include; empty = scan + first-run setup */
+  accounts: AccountConfig[];
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -19,6 +27,7 @@ export const DEFAULT_CONFIG: Config = {
   budgetHard: 15,
   projectRoots: [],
   priceOverrides: {},
+  accounts: [],
 };
 
 /** Merge a partial user config over defaults. Pure, for testability. */
@@ -36,7 +45,20 @@ export function mergeConfig(partial: unknown): Config {
       p.priceOverrides && typeof p.priceOverrides === "object"
         ? (p.priceOverrides as Record<string, string>)
         : {},
+    accounts: Array.isArray(p.accounts)
+      ? p.accounts.filter(isAccountConfig)
+      : [],
   };
+}
+
+function isAccountConfig(v: unknown): v is AccountConfig {
+  return (
+    !!v &&
+    typeof v === "object" &&
+    typeof (v as AccountConfig).dir === "string" &&
+    typeof (v as AccountConfig).label === "string" &&
+    typeof (v as AccountConfig).enabled === "boolean"
+  );
 }
 
 export function loadConfig(path: string = configPath()): Config {

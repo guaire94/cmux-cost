@@ -19,4 +19,23 @@ describe("mergeConfig", () => {
     expect(c.projectRoots).toEqual(["/a", "/b"]);
     expect(c.priceOverrides).toEqual({ m: "anthropic/x" });
   });
+
+  it("parses the accounts array and drops malformed entries", () => {
+    const c = mergeConfig({
+      accounts: [
+        { dir: "/Users/x/.claude-talabat", label: "Talabat", enabled: true },
+        { dir: "/Users/x/.claude", label: "Default", enabled: false },
+        { dir: 123, label: "bad" }, // malformed -> dropped
+        "junk", // malformed -> dropped
+      ],
+    });
+    expect(c.accounts).toEqual([
+      { dir: "/Users/x/.claude-talabat", label: "Talabat", enabled: true },
+      { dir: "/Users/x/.claude", label: "Default", enabled: false },
+    ]);
+  });
+
+  it("defaults accounts to an empty array", () => {
+    expect(mergeConfig({}).accounts).toEqual([]);
+  });
 });
