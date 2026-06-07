@@ -2,7 +2,10 @@ import { execPath } from "node:process";
 import { fileURLToPath } from "node:url";
 import { windowTotals } from "./aggregate.js";
 import { loadViews } from "./app.js";
-import { claudeSettingsPath, dockConfigPath } from "./paths.js";
+import { scanClaudeDirs } from "./accounts.js";
+import { loadConfig, saveConfig } from "./config.js";
+import { runAccountSetup } from "./setup.js";
+import { claudeSettingsPath, configPath, dockConfigPath } from "./paths.js";
 import {
   installDock,
   installHook,
@@ -25,6 +28,20 @@ function quote(s: string): string {
   return /[\s"']/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s;
 }
 
+/** On first run, offer interactive account setup (TTY only). */
+async function maybeFirstRunSetup(): Promise<void> {
+  const cfg = loadConfig();
+  if (cfg.accounts.length > 0) return;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    process.stderr.write(
+      "cmux-cost: no accounts configured — including all Claude dirs. Run `cmux-cost accounts` to choose.\n",
+    );
+    return;
+  }
+  const picks = await runAccountSetup();
+  if (picks) saveConfig({ ...cfg, accounts: picks });
+}
+
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return "";
   const chunks: Buffer[] = [];
@@ -45,16 +62,19 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "report": {
+      await maybeFirstRunSetup();
       const path = await openReport();
       process.stdout.write(`report: ${path}\n`);
       return 0;
     }
     case "today": {
+      await maybeFirstRunSetup();
       const { cfg, views } = await loadViews();
       process.stdout.write(renderTotals(windowTotals(views, Date.now()), cfg.currency) + "\n");
       return 0;
     }
     case "sessions": {
+      await maybeFirstRunSetup();
       const { cfg, views } = await loadViews();
       process.stdout.write(renderSessions(views, cfg.currency, Date.now()) + "\n");
       return 0;
@@ -72,6 +92,34 @@ async function main(argv: string[]): Promise<number> {
         return 1;
       }
       process.stdout.write(renderSessionDetail(view, cfg.currency) + "\n");
+      return 0;
+    }
+    case "accounts": {
+      if (rest[0] === "--list") {
+        const cfg = loadConfig();
+        if (cfg.accounts.length === 0) {
+          process.stdout.write("no accounts configured — auto-discovering:\n");
+          for (const s of scanClaudeDirs()) {
+            process.stdout.write(
+              `  ${s.label.padEnd(12)} ${s.transcripts} sessions  ${s.dir}\n`,
+            );
+          }
+        } else {
+          for (const a of cfg.accounts) {
+            process.stdout.write(`  [${a.enabled ? "x" : " "}] ${a.label.padEnd(12)} ${a.dir}\n`);
+          }
+        }
+        return 0;
+      }
+      const picks = await runAccountSetup();
+      if (!picks) {
+        process.stderr.write("not a TTY (or no Claude dirs found) — nothing to configure\n");
+        return 1;
+      }
+      const cfg = loadConfig();
+      saveConfig({ ...cfg, accounts: picks });
+      const enabled = picks.filter((p) => p.enabled).length;
+      process.stdout.write(`saved ${enabled} account(s) -> ${configPath()}\n`);
       return 0;
     }
     case "install": {
@@ -111,6 +159,7 @@ const HELP = `cmux-cost ${VERSION} — token cost for cmux
 Usage:
   cmux-cost install        Register the Claude hook + add the dock control
   cmux-cost uninstall      Remove both
+  cmux-cost accounts       Choose/label which Claude accounts to include
   cmux-cost report         Generate the HTML report and open it in cmux
   cmux-cost dock           Run the dock summary TUI (used by the dock control)
   cmux-cost today          Print today / 7d / 30d / all-time totals

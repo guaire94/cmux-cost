@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { configPath } from "./paths.js";
 
 export interface AccountConfig {
@@ -71,4 +72,10 @@ export function loadConfig(path: string = configPath()): Config {
 
 function numOr(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
+
+/** Persist a config to disk (pretty-printed), creating parent dirs. */
+export function saveConfig(cfg: Config, path: string = configPath()): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(cfg, null, 2)}\n`);
 }
