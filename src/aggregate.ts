@@ -164,7 +164,54 @@ export interface FlatSession {
   lastActivity: number;
 }
 
+/**
+ * Everything the report shows for a single Claude account. The account is the
+ * top-level partition: a section never mixes data from two accounts.
+ */
+export interface AccountSection {
+  /** account label, e.g. "perso" or "Default" */
+  label: string;
+  /** all-time cost of this account (shown on the account tab) */
+  total: CostResult;
+  /** number of sessions under this account */
+  sessions: number;
+  /** the account's distinct workspace titles, for the in-account filter */
+  workspaces: string[];
+  /** teammate leaderboard computed from THIS account's sessions only */
+  leaderboard: TeammateTotal[];
+  /** daily spend series computed from THIS account's sessions only */
+  series: DayPoint[];
+  /** the account's Workspace -> Session -> Teammate rollup tree */
+  tree: TreeNode;
+}
+
 const UNKNOWN_WS = "unknown workspace";
+
+/**
+ * Build one self-contained section per account. Every number inside a section
+ * (leaderboard, daily series, tree, total) is derived ONLY from that account's
+ * sessions — accounts are never aggregated together. Highest-cost account first.
+ */
+export function buildAccountSections(
+  views: SessionView[],
+  nowMs: number,
+  days = 14,
+): AccountSection[] {
+  // buildTree is already account-first and cost-sorted; reuse its account nodes.
+  return buildTree(views).map((accNode) => {
+    const accViews = views.filter((v) => v.account.label === accNode.label);
+    const sessionCount = accNode.children.reduce((n, ws) => n + ws.children.length, 0);
+    return {
+      label: accNode.label,
+      total: accNode.cost,
+      sessions: sessionCount,
+      workspaces: accNode.children.map((ws) => ws.label),
+      leaderboard: teammateLeaderboard(accViews),
+      series: dailySeries(accViews, nowMs, days),
+      tree: accNode,
+    };
+  });
+}
 
 /** Build the Account -> Workspace -> Session -> Teammate rollup tree. */
 export function buildTree(views: SessionView[]): TreeNode[] {
