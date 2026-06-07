@@ -1,13 +1,19 @@
 import {
   buildSessionView,
+  buildTree,
   dailySeries,
+  flatSessions,
   windowTotals,
+  type FlatSession,
   type SessionView,
+  type TreeNode,
 } from "./aggregate.js";
+import { resolveAccounts } from "./accounts.js";
 import { loadConfig, type Config } from "./config.js";
-import { defaultProjectRoots, loadAllSessions } from "./discover.js";
+import { loadAllSessions } from "./discover.js";
 import { pricesCachePath } from "./paths.js";
 import { loadPriceTable, type PriceTable } from "./pricing.js";
+import { loadWorkspaceMap, workspaceFor } from "./workspaces.js";
 import type { ReportData } from "./render-html.js";
 
 export interface LoadedViews {
@@ -16,16 +22,21 @@ export interface LoadedViews {
   views: SessionView[];
 }
 
-/** Shared loader: config -> roots -> sessions -> prices -> per-session views. */
+/** Shared loader: config -> accounts -> sessions -> prices -> views (+ workspace). */
 export async function loadViews(): Promise<LoadedViews> {
   const cfg = loadConfig();
-  const roots = cfg.projectRoots.length > 0 ? cfg.projectRoots : defaultProjectRoots();
-  const sessions = loadAllSessions(roots);
+  const accounts = resolveAccounts(cfg);
+  const sessions = loadAllSessions(accounts);
   const prices = await loadPriceTable({
     cachePath: pricesCachePath(),
     overrides: cfg.priceOverrides,
   });
-  const views = sessions.map((s) => buildSessionView(s, prices));
+  const wsMap = loadWorkspaceMap();
+  const views = sessions.map((s) => {
+    const view = buildSessionView(s, prices);
+    view.workspace = workspaceFor(wsMap, s.id);
+    return view;
+  });
   return { cfg, prices, views };
 }
 
@@ -39,11 +50,16 @@ export function buildReportData(loaded: LoadedViews, nowMs: number): ReportData 
   for (const v of loaded.views) for (const m of v.cost.unknownModels) unknown.add(m);
   if (unknown.size > 0) warnings.push(`no price for: ${[...unknown].join(", ")}`);
 
+  const tree: TreeNode[] = buildTree(loaded.views);
+  const flat: FlatSession[] = flatSessions(loaded.views);
+
   return {
     generatedAt: nowMs,
     currency: loaded.cfg.currency,
     totals: windowTotals(loaded.views, nowMs),
     sessions: loaded.views,
+    tree,
+    flat,
     series: dailySeries(loaded.views, nowMs),
     warnings,
   };

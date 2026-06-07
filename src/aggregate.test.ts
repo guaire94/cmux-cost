@@ -230,16 +230,16 @@ describe("buildTree", () => {
       ["Talabat", 15],
       ["Personal", 3],
     ]);
-    const talaWs = tree[0].children;
+    const talaWs = tree[0]!.children;
     expect(talaWs.map((n) => [n.label, n.level, n.cost.cost])).toEqual([
       ["[Talabat] Flutter App", "workspace", 15],
     ]);
-    expect(talaWs[0].children.map((s) => s.cost.cost)).toEqual([10, 5]);
+    expect(talaWs[0]!.children.map((s) => s.cost.cost)).toEqual([10, 5]);
   });
 
   it("buckets sessions without a workspace under 'unknown workspace'", () => {
     const tree = buildTree([mkView("s3", perso, undefined, 3)]);
-    expect(tree[0].children[0].label).toBe("unknown workspace");
+    expect(tree[0]!.children[0]!.label).toBe("unknown workspace");
   });
 });
 

@@ -19,8 +19,11 @@ export function parseWorkspaceList(stdout: string): Map<string, string> {
     const line = raw.replace(/^\s*\*?\s*/, "").trim();
     const m = line.match(/^workspace:\S+\s+([0-9A-Fa-f-]{36})\s+(.*)$/);
     if (!m) continue;
-    const title = m[2].replace(/\s*\[selected\]\s*$/, "").trim();
-    if (title) map.set(m[1], title);
+    const id = m[1];
+    const rest = m[2];
+    if (!id || rest === undefined) continue;
+    const title = rest.replace(/\s*\[selected\]\s*$/, "").trim();
+    if (title) map.set(id, title);
   }
   return map;
 }

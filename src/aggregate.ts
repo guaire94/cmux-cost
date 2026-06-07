@@ -211,15 +211,18 @@ function sessionNode(v: SessionView): TreeNode {
       lastActivity: v.lastActivity,
       children: [],
     },
-    ...v.teammates.map((t) => ({
-      key: `tm:${v.id}:${t.id}`,
-      label: t.name ?? t.label,
-      level: "teammate" as const,
-      cost: t.cost,
-      lastActivity: v.lastActivity,
-      children: [],
-    })),
-  ].sort(byCostDesc);
+    ...v.teammates.map(
+      (t): TreeNode => ({
+        key: `tm:${v.id}:${t.id}`,
+        label: t.name ?? t.label,
+        level: "teammate",
+        cost: t.cost,
+        lastActivity: v.lastActivity,
+        children: [],
+      }),
+    ),
+  ];
+  mates.sort(byCostDesc);
   return {
     key: `se:${v.id}`,
     label: `${v.id.slice(0, 8)} · ${v.project}`,
