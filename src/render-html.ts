@@ -1,8 +1,6 @@
 import {
-  teammateLeaderboard,
+  type AccountSection,
   type DayPoint,
-  type FlatSession,
-  type SessionView,
   type TeammateTotal,
   type TreeNode,
   type WindowTotals,
@@ -12,17 +10,17 @@ import { fmtCost, fmtTimeAgo, fmtTokens, fmtUsd } from "./format.js";
 export interface ReportData {
   generatedAt: number;
   currency: string;
+  /** GLOBAL window totals — the only multi-account numbers in the report. */
   totals: WindowTotals;
-  sessions: SessionView[];
-  tree: TreeNode[];
-  flat: FlatSession[];
-  series: DayPoint[];
+  /** one self-contained section per Claude account, highest-cost first */
+  accounts: AccountSection[];
   warnings: string[];
 }
 
-/** Render a self-contained HTML cost dashboard (inline CSS + JS, data embedded). */
+/** Render a self-contained HTML cost dashboard (inline CSS + JS). */
 export function renderHtml(data: ReportData): string {
   const { currency } = data;
+
   const kpis = [
     ["Today", data.totals.today],
     ["Last 7 days", data.totals.week],
@@ -41,21 +39,16 @@ export function renderHtml(data: ReportData): string {
     )
     .join("");
 
-  const board = teammateLeaderboard(data.sessions);
-  const boardHtml = board.length
-    ? `<section class="board">
-        <h2>Cost by teammate</h2>
-        ${leaderboard(board.slice(0, 14), currency)}
-      </section>`
-    : "";
-
-  const treeHtml = data.tree
-    .map((n) => treeNode(n, currency, data.generatedAt))
-    .join("");
-
   const warnHtml = data.warnings.length
     ? `<div class="warn">⚠ ${data.warnings.map(esc).join(" · ")}</div>`
     : "";
+
+  const body = data.accounts.length
+    ? `<div class="acc-tabs" role="tablist">${data.accounts
+        .map((a, i) => accountTab(a, currency, i === 0))
+        .join("")}</div>
+      ${data.accounts.map((a, i) => accountPanel(a, currency, data.generatedAt, i === 0)).join("")}`
+    : `<div class="acc-panel"><div class="empty">No sessions found.</div></div>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -71,18 +64,65 @@ export function renderHtml(data: ReportData): string {
   <div class="generated">generated ${esc(new Date(data.generatedAt).toLocaleString())}</div>
 </header>
 ${warnHtml}
-<section class="kpis">${kpiHtml}</section>
-${boardHtml}
-<section class="chart"><h2>Daily spend</h2>${chart(data.series, currency)}</section>
-<section class="breakdown-section">
-  <h2>Breakdown <span class="hint">— account → workspace → session → teammate; click to expand</span></h2>
-  ${filterBar(data)}
-  <div class="tree">${treeHtml || `<div class="empty">No sessions found.</div>`}</div>
+<section class="global">
+  <div class="global-label">All accounts</div>
+  <div class="kpis">${kpiHtml}</div>
 </section>
-<script>window.__CMUX_COST__=${json({ flat: data.flat, currency, generatedAt: data.generatedAt })};</script>
+${body}
 <script>${JS}</script>
 </body>
 </html>`;
+}
+
+/** A pill in the account selector — name + this account's all-time total. */
+function accountTab(a: AccountSection, currency: string, active: boolean): string {
+  return `<button class="acc-tab${active ? " active" : ""}" role="tab" data-acc-tab="${esc(a.label)}">
+    <span class="acc-tab-name">${esc(a.label)}</span>
+    <span class="acc-tab-total">${esc(fmtCost(a.total, currency))}</span>
+  </button>`;
+}
+
+/** The full panel for one account: leaderboard + chart, then the breakdown tree. */
+function accountPanel(
+  a: AccountSection,
+  currency: string,
+  now: number,
+  active: boolean,
+): string {
+  const board = a.leaderboard.length
+    ? leaderboard(a.leaderboard.slice(0, 14), currency)
+    : `<div class="empty small">No named teammates.</div>`;
+
+  const treeHtml = a.tree.children.length
+    ? a.tree.children.map((n) => treeNode(n, currency, now)).join("")
+    : `<div class="empty small">No sessions.</div>`;
+
+  const tmCount = a.leaderboard.length;
+  const meta = [
+    `${a.sessions} session${a.sessions === 1 ? "" : "s"}`,
+    tmCount ? `${tmCount} teammate${tmCount === 1 ? "" : "s"}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return `<section class="acc-panel${active ? "" : " hidden"}" role="tabpanel" data-acc-panel="${esc(a.label)}">
+  <div class="acc-head"><strong>${esc(a.label)}</strong> · ${esc(meta)}</div>
+  <div class="acc-cols">
+    <div class="col">
+      <h3>Cost by teammate</h3>
+      ${board}
+    </div>
+    <div class="col">
+      <h3>Daily spend</h3>
+      ${chart(a.series, currency)}
+    </div>
+  </div>
+  <div class="breakdown">
+    <h3>Breakdown <span class="hint">— workspace → session → teammate; click to expand</span></h3>
+    ${filterBar(a)}
+    <div class="tree">${treeHtml}</div>
+  </div>
+</section>`;
 }
 
 function leaderboard(items: TeammateTotal[], currency: string): string {
@@ -101,21 +141,18 @@ function leaderboard(items: TeammateTotal[], currency: string): string {
     .join("")}</div>`;
 }
 
-function filterBar(data: ReportData): string {
-  const accounts = [...new Set(data.flat.map((f) => f.account))];
-  const workspaces = [...new Set(data.flat.map((f) => f.workspace))];
-  const chips = (kind: string, names: string[]): string =>
-    names
-      .map(
-        (n) =>
-          `<label class="chip"><input type="checkbox" checked data-filter="${kind}" value="${esc(
-            n,
-          )}" /> ${esc(n)}</label>`,
-      )
-      .join("");
+/** In-account filters: one chip per workspace + a session search box. */
+function filterBar(a: AccountSection): string {
+  const chips = a.workspaces
+    .map(
+      (n) =>
+        `<label class="chip"><input type="checkbox" checked data-filter="workspace" value="${esc(
+          n,
+        )}" /> ${esc(n)}</label>`,
+    )
+    .join("");
   return `<div class="filters">
-    <div class="filter-group"><span class="fg-label">Account</span>${chips("account", accounts)}</div>
-    <div class="filter-group"><span class="fg-label">Workspace</span>${chips("workspace", workspaces)}</div>
+    <div class="filter-group"><span class="fg-label">Workspace</span>${chips}</div>
     <input class="search" type="search" placeholder="search session…" data-filter="search" />
   </div>`;
 }
@@ -124,13 +161,11 @@ function treeNode(n: TreeNode, currency: string, now: number): string {
   const hasKids = n.children.length > 0;
   const caret = hasKids ? `<span class="caret">▸</span>` : `<span class="caret-spacer"></span>`;
   const attrs =
-    n.level === "account"
-      ? ` data-account="${esc(n.label)}"`
-      : n.level === "workspace"
-        ? ` data-workspace="${esc(n.label)}"`
-        : n.level === "session"
-          ? ` data-session="${esc(n.label)}"`
-          : "";
+    n.level === "workspace"
+      ? ` data-workspace="${esc(n.label)}"`
+      : n.level === "session"
+        ? ` data-session="${esc(n.label)}"`
+        : "";
   const kids = hasKids
     ? `<div class="tnode-children">${n.children
         .map((child) => treeNode(child, currency, now))
@@ -172,28 +207,43 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,B
 header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:20px}
 h1{font-size:20px;margin:0}
 h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:0 0 10px}
-h2 .hint{text-transform:none;letter-spacing:0;font-weight:400}
+h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:0 0 8px;font-weight:600}
+h3 .hint{text-transform:none;letter-spacing:0;font-weight:400}
 .generated{color:var(--dim);font-size:12px}
 .warn{background:#3d2d00;border:1px solid #6b5200;color:#f0d98a;padding:8px 12px;border-radius:8px;margin-bottom:16px;font-size:13px}
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.global{margin-bottom:20px}
+.global-label{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
 .kpi-label{color:var(--dim);font-size:12px}.kpi-value{font-size:24px;font-weight:600;margin:4px 0}.kpi-sub{color:var(--dim);font-size:12px}
-section{margin-bottom:24px}
+.acc-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.acc-tab{display:inline-flex;align-items:baseline;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:7px 15px;cursor:pointer;color:var(--fg);font:inherit}
+.acc-tab:hover{border-color:var(--dim)}
+.acc-tab-name{font-weight:600}
+.acc-tab-total{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums}
+.acc-tab.active{border-color:var(--accent);background:#13251a}
+.acc-tab.active .acc-tab-total{color:var(--fg)}
+.acc-panel{border:1px solid var(--line);border-radius:12px;padding:16px;background:#11151b}
+.acc-panel.hidden{display:none}
+.acc-head{color:var(--dim);font-size:12px;margin-bottom:16px}
+.acc-head strong{color:var(--fg);font-size:14px}
+.acc-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.col{min-width:0}
+@media (max-width:720px){.acc-cols{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}}
 .board-list{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 14px}
-.bk{display:grid;grid-template-columns:200px 1fr 84px 64px;align-items:center;gap:12px;padding:5px 0}
+.bk{display:grid;grid-template-columns:minmax(90px,1fr) 1.2fr 70px;align-items:center;gap:10px;padding:5px 0}
 .bk-label{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .bk-name{font-weight:600}
-.bk-task{color:var(--dim);font-size:12px;margin-left:6px}
 .bk-bar{height:8px;background:#0d1117;border-radius:5px;overflow:hidden}
 .bk-bar span{display:block;height:100%;background:var(--accent);border-radius:5px}
-.bk.lead .bk-bar span{background:var(--lead)}
-.bk.lead .bk-name{color:var(--lead)}
 .bk-num{text-align:right;font-variant-numeric:tabular-nums}
-.chart .bars{width:100%;height:140px;background:var(--panel);border:1px solid var(--line);border-radius:10px}
-.chart .bars rect{fill:var(--accent);opacity:.85}.chart .bars rect:hover{opacity:1}
-.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.bk-num.dim{display:none}
+.bars{width:100%;height:140px;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.bars rect{fill:var(--accent);opacity:.85}.bars rect:hover{opacity:1}
 .dim{color:var(--dim)}
 .empty{text-align:center;color:var(--dim);padding:24px}
+.empty.small{padding:14px;font-size:13px}
+.breakdown{margin-top:4px}
 .filters{display:flex;flex-wrap:wrap;gap:14px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px}
 .filter-group{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .fg-label{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.05em;margin-right:2px}
@@ -206,8 +256,7 @@ section{margin-bottom:24px}
 .tnode-row{display:grid;grid-template-columns:18px 1fr 90px 64px 44px;align-items:center;gap:10px;padding:5px 2px;border-bottom:1px solid #20262e}
 .tnode-row.expandable{cursor:pointer}.tnode-row.expandable:hover{background:#1c2128}
 .tnode-label{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.level-account>.tnode-row .tnode-label{font-weight:600}
-.level-workspace>.tnode-row .tnode-label{color:#79c0ff}
+.level-workspace>.tnode-row .tnode-label{color:#79c0ff;font-weight:600}
 .tnode-cost,.tnode-tokens,.tnode-when{text-align:right;font-variant-numeric:tabular-nums}
 .caret{display:inline-block;transition:transform .12s;color:var(--dim)}
 .caret-spacer{display:inline-block;width:1em}
@@ -217,87 +266,60 @@ section{margin-bottom:24px}
 
 const JS = `
 (function(){
-  var data = window.__CMUX_COST__ || { flat: [], currency: "USD" };
+  var tabs = document.querySelectorAll('[data-acc-tab]');
+  var panels = document.querySelectorAll('[data-acc-panel]');
+
+  function showAccount(label){
+    tabs.forEach(function(t){ t.classList.toggle('active', t.getAttribute('data-acc-tab') === label); });
+    panels.forEach(function(p){ p.classList.toggle('hidden', p.getAttribute('data-acc-panel') !== label); });
+  }
+  tabs.forEach(function(t){
+    t.addEventListener('click', function(){ showAccount(t.getAttribute('data-acc-tab')); });
+  });
 
   document.querySelectorAll('.tnode-row.expandable').forEach(function(row){
     row.addEventListener('click', function(){ row.parentElement.classList.toggle('open'); });
   });
 
-  function checked(kind){
-    var set = {};
-    document.querySelectorAll('input[data-filter="'+kind+'"]').forEach(function(cb){
-      if(cb.checked) set[cb.value]=true;
-    });
-    return set;
-  }
-  function searchTerm(){
-    var el = document.querySelector('input[data-filter="search"]');
-    return (el && el.value ? el.value : '').toLowerCase();
-  }
-
-  function apply(){
-    var accs = checked('account');
-    var wss = checked('workspace');
-    var term = searchTerm();
-
-    document.querySelectorAll('.tnode.level-account').forEach(function(acc){
-      var accName = acc.getAttribute('data-account');
-      var accOn = !!accs[accName];
-      var anyAccVisible = false;
-      acc.querySelectorAll('.tnode.level-workspace').forEach(function(ws){
-        var wsName = ws.getAttribute('data-workspace');
-        var wsOn = accOn && !!wss[wsName];
-        var anyWsVisible = false;
-        ws.querySelectorAll('.tnode.level-session').forEach(function(se){
-          var label = (se.getAttribute('data-session')||'').toLowerCase();
-          var on = wsOn && (!term || label.indexOf(term) >= 0);
-          se.classList.toggle('hidden', !on);
-          if(on) anyWsVisible = true;
-        });
-        ws.classList.toggle('hidden', !anyWsVisible);
-        if(anyWsVisible) anyAccVisible = true;
+  // Each account panel filters its own tree — no cross-account state.
+  panels.forEach(function(panel){
+    function checkedWs(){
+      var set = {};
+      panel.querySelectorAll('input[data-filter="workspace"]').forEach(function(cb){
+        if(cb.checked) set[cb.value] = true;
       });
-      acc.classList.toggle('hidden', !anyAccVisible);
+      return set;
+    }
+    function term(){
+      var el = panel.querySelector('input[data-filter="search"]');
+      return (el && el.value ? el.value : '').toLowerCase();
+    }
+    function apply(){
+      var wss = checkedWs();
+      var t = term();
+      panel.querySelectorAll('.tnode.level-workspace').forEach(function(ws){
+        var wsName = ws.getAttribute('data-workspace');
+        var wsOn = !!wss[wsName];
+        var anyVisible = false;
+        ws.querySelectorAll('.tnode.level-session').forEach(function(se){
+          var label = (se.getAttribute('data-session') || '').toLowerCase();
+          var on = wsOn && (!t || label.indexOf(t) >= 0);
+          se.classList.toggle('hidden', !on);
+          if(on) anyVisible = true;
+        });
+        ws.classList.toggle('hidden', !anyVisible);
+      });
+    }
+    panel.querySelectorAll('input[data-filter]').forEach(function(el){
+      el.addEventListener('input', apply);
+      el.addEventListener('change', apply);
     });
-
-    recomputeKpis(accs, wss, term);
-  }
-
-  function recomputeKpis(accs, wss, term){
-    var now = data.generatedAt || Date.now();
-    var DAY = 86400000;
-    var d0 = new Date(now); d0.setHours(0,0,0,0);
-    var spans = { today: d0.getTime(), week: now-7*DAY, month: now-30*DAY, all: 0 };
-    var sums = { today:0, week:0, month:0, all:0 };
-    data.flat.forEach(function(f){
-      if(!accs[f.account] || !wss[f.workspace]) return;
-      if(term && f.label.toLowerCase().indexOf(term) < 0) return;
-      for(var k in spans){ if(f.lastActivity >= spans[k]) sums[k]+=f.cost; }
-    });
-    var order = ['today','week','month','all'];
-    document.querySelectorAll('.kpi-value').forEach(function(el, i){
-      var v = sums[order[i]];
-      el.textContent = (data.currency==='USD'?'$':'') + (v<1? v.toFixed(4): v.toFixed(2));
-    });
-  }
-
-  document.querySelectorAll('input[data-filter]').forEach(function(el){
-    el.addEventListener('input', apply);
-    el.addEventListener('change', apply);
   });
-  document.querySelectorAll('.tnode.level-account').forEach(function(a){ a.classList.add('open'); });
+
+  // Workspaces expanded by default so sessions are visible at a glance.
+  document.querySelectorAll('.tnode.level-workspace').forEach(function(w){ w.classList.add('open'); });
 })();
 `;
-
-function json(value: unknown): string {
-  // Safe to inline in a <script>: escape the sequences that could break out.
-  return JSON.stringify(value)
-    .replace(/</g, "\\u003c")
-    .replace(/>/g, "\\u003e")
-    .replace(/&/g, "\\u0026")
-    .replace(/\u2028/g, "\\u2028")
-    .replace(/\u2029/g, "\\u2029");
-}
 
 function esc(s: string): string {
   return s

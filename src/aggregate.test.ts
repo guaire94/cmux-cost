@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAccountSections,
   buildSessionView,
   buildTree,
   dailySeries,
@@ -240,6 +241,39 @@ describe("buildTree", () => {
   it("buckets sessions without a workspace under 'unknown workspace'", () => {
     const tree = buildTree([mkView("s3", perso, undefined, 3)]);
     expect(tree[0]!.children[0]!.label).toBe("unknown workspace");
+  });
+});
+
+describe("buildAccountSections", () => {
+  const perso: Account = { dir: "/h/.claude-personal", label: "Personal" };
+  const tala: Account = { dir: "/h/.claude-talabat", label: "Talabat" };
+  const ws: Workspace = { id: "W1", title: "[Talabat] Flutter App" };
+
+  const withMate = (
+    id: string,
+    account: Account,
+    name: string,
+    c: number,
+  ): SessionView => ({
+    ...mkView(id, account, ws, c),
+    teammates: [{ id: `${id}-a`, name, label: name, cost: cost(c) }],
+  });
+
+  it("keeps each account self-contained, highest-cost account first", () => {
+    const secs = buildAccountSections(
+      [withMate("s1", tala, "auth-dev", 10), withMate("s2", perso, "data-dev", 3)],
+      1_700_000_000_000,
+    );
+    expect(secs.map((s) => [s.label, s.total.cost])).toEqual([
+      ["Talabat", 10],
+      ["Personal", 3],
+    ]);
+    // a section's leaderboard never mixes in another account's teammates
+    expect(secs[0]!.leaderboard.map((t) => t.name)).toEqual(["auth-dev"]);
+    expect(secs[1]!.leaderboard.map((t) => t.name)).toEqual(["data-dev"]);
+    expect(secs[0]!.sessions).toBe(1);
+    expect(secs[0]!.workspaces).toEqual(["[Talabat] Flutter App"]);
+    expect(secs[0]!.tree.level).toBe("account");
   });
 });
 

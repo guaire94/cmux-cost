@@ -1,12 +1,8 @@
 import {
+  buildAccountSections,
   buildSessionView,
-  buildTree,
-  dailySeries,
-  flatSessions,
   windowTotals,
-  type FlatSession,
   type SessionView,
-  type TreeNode,
 } from "./aggregate.js";
 import { resolveAccounts } from "./accounts.js";
 import { loadConfig, type Config } from "./config.js";
@@ -50,17 +46,11 @@ export function buildReportData(loaded: LoadedViews, nowMs: number): ReportData 
   for (const v of loaded.views) for (const m of v.cost.unknownModels) unknown.add(m);
   if (unknown.size > 0) warnings.push(`no price for: ${[...unknown].join(", ")}`);
 
-  const tree: TreeNode[] = buildTree(loaded.views);
-  const flat: FlatSession[] = flatSessions(loaded.views);
-
   return {
     generatedAt: nowMs,
     currency: loaded.cfg.currency,
     totals: windowTotals(loaded.views, nowMs),
-    sessions: loaded.views,
-    tree,
-    flat,
-    series: dailySeries(loaded.views, nowMs),
+    accounts: buildAccountSections(loaded.views, nowMs),
     warnings,
   };
 }
