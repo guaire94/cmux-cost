@@ -1,6 +1,6 @@
 import { addCost, costByModel, mergeByModel, zeroCost } from "./cost.js";
 import type { PriceTable } from "./pricing.js";
-import type { CostResult, Session } from "./types.js";
+import type { Account, CostResult, Session, Workspace } from "./types.js";
 
 export interface TeammateView {
   id: string;
@@ -13,6 +13,8 @@ export interface TeammateView {
 export interface SessionView {
   id: string;
   project: string;
+  account: Account;
+  workspace?: Workspace;
   lastActivity: number;
   cost: CostResult; // main + teammates
   mainCost: CostResult; // the lead/orchestrator transcript alone
@@ -53,6 +55,7 @@ export function buildSessionView(session: Session, prices: PriceTable): SessionV
   ]);
   return {
     id: session.id,
+    account: session.account,
     project: prettyProject(session.project),
     lastActivity: session.lastActivity,
     cost: costByModel(allUsage, prices),
@@ -139,4 +142,124 @@ function isoDate(ms: number): string {
 export function prettyProject(slug: string): string {
   const parts = slug.split("-").filter(Boolean);
   return parts.slice(-2).join("/") || slug;
+}
+
+export interface TreeNode {
+  key: string;
+  label: string;
+  level: "account" | "workspace" | "session" | "teammate";
+  cost: CostResult;
+  lastActivity: number;
+  children: TreeNode[];
+}
+
+export interface FlatSession {
+  id: string;
+  label: string;
+  account: string;
+  workspace: string;
+  cost: number;
+  partial: boolean;
+  tokens: number;
+  lastActivity: number;
+}
+
+const UNKNOWN_WS = "unknown workspace";
+
+/** Build the Account -> Workspace -> Session -> Teammate rollup tree. */
+export function buildTree(views: SessionView[]): TreeNode[] {
+  const byAccount = groupBy(views, (v) => v.account.label);
+  const nodes: TreeNode[] = [];
+  for (const [label, accViews] of byAccount) {
+    const wsNodes = workspaceNodes(label, accViews);
+    nodes.push({
+      key: `acc:${label}`,
+      label,
+      level: "account",
+      cost: sumCost(wsNodes.map((n) => n.cost)),
+      lastActivity: maxActivity(accViews),
+      children: wsNodes,
+    });
+  }
+  return nodes.sort(byCostDesc);
+}
+
+function workspaceNodes(accountLabel: string, views: SessionView[]): TreeNode[] {
+  const byWs = groupBy(views, (v) => v.workspace?.title ?? UNKNOWN_WS);
+  const nodes: TreeNode[] = [];
+  for (const [title, wsViews] of byWs) {
+    const sessionNodes = wsViews.map((v) => sessionNode(v)).sort(byCostDesc);
+    nodes.push({
+      key: `ws:${accountLabel}:${title}`,
+      label: title,
+      level: "workspace",
+      cost: sumCost(sessionNodes.map((n) => n.cost)),
+      lastActivity: maxActivity(wsViews),
+      children: sessionNodes,
+    });
+  }
+  return nodes.sort(byCostDesc);
+}
+
+function sessionNode(v: SessionView): TreeNode {
+  const mates: TreeNode[] = [
+    {
+      key: `tm:${v.id}:lead`,
+      label: "lead",
+      level: "teammate",
+      cost: v.mainCost,
+      lastActivity: v.lastActivity,
+      children: [],
+    },
+    ...v.teammates.map((t) => ({
+      key: `tm:${v.id}:${t.id}`,
+      label: t.name ?? t.label,
+      level: "teammate" as const,
+      cost: t.cost,
+      lastActivity: v.lastActivity,
+      children: [],
+    })),
+  ].sort(byCostDesc);
+  return {
+    key: `se:${v.id}`,
+    label: `${v.id.slice(0, 8)} · ${v.project}`,
+    level: "session",
+    cost: v.cost,
+    lastActivity: v.lastActivity,
+    children: mates,
+  };
+}
+
+/** Flatten views into filter rows for the report's client-side recompute. */
+export function flatSessions(views: SessionView[]): FlatSession[] {
+  return views.map((v) => ({
+    id: v.id,
+    label: v.project,
+    account: v.account.label,
+    workspace: v.workspace?.title ?? UNKNOWN_WS,
+    cost: v.cost.cost,
+    partial: v.cost.partial,
+    tokens: v.cost.tokens,
+    lastActivity: v.lastActivity,
+  }));
+}
+
+function groupBy<T>(items: T[], key: (t: T) => string): Map<string, T[]> {
+  const m = new Map<string, T[]>();
+  for (const it of items) {
+    const k = key(it);
+    const arr = m.get(k);
+    if (arr) arr.push(it);
+    else m.set(k, [it]);
+  }
+  return m;
+}
+function sumCost(costs: CostResult[]): CostResult {
+  return costs.reduce((acc, c) => addCost(acc, c), zeroCost());
+}
+function maxActivity(views: SessionView[]): number {
+  return views.reduce((m, v) => Math.max(m, v.lastActivity), 0);
+}
+function byCostDesc(a: TreeNode, b: TreeNode): number {
+  return b.cost.cost - a.cost.cost;
 }

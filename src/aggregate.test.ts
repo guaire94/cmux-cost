@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSessionView,
+  buildTree,
   dailySeries,
+  flatSessions,
   prettyProject,
   startOfLocalDay,
   teammateLeaderboard,
@@ -9,7 +11,16 @@ import {
   type SessionView,
 } from "./aggregate.js";
 import { parseOpenRouterModels, PriceTable } from "./pricing.js";
-import { emptyUsage, type Session, type Usage } from "./types.js";
+import {
+  emptyUsage,
+  type Account,
+  type CostResult,
+  type Session,
+  type Usage,
+  type Workspace,
+} from "./types.js";
+
+const ACC: Account = { dir: "/h/.claude-personal", label: "Personal" };
 
 const prices = new PriceTable(
   parseOpenRouterModels({
@@ -29,6 +40,7 @@ function usage(p: Partial<Usage>): Usage {
 function session(over: Partial<Session>): Session {
   return {
     id: "s1",
+    account: ACC,
     project: "-Users-me-proj",
     mainPath: "/x/s1.jsonl",
     main: { id: "s1", path: "/x/s1.jsonl", byModel: new Map() },
@@ -83,6 +95,7 @@ describe("teammateLeaderboard", () => {
     const view = (id: string, mates: Array<{ name: string; cost: number }>): SessionView => ({
       id,
       project: "p",
+      account: ACC,
       lastActivity: 0,
       cost: c(0),
       mainCost: c(0),
@@ -109,6 +122,7 @@ describe("teammateLeaderboard", () => {
     const v: SessionView = {
       id: "s",
       project: "p",
+      account: ACC,
       lastActivity: 0,
       cost: c(0),
       mainCost: c(0),
@@ -128,6 +142,7 @@ describe("windowTotals", () => {
     const mk = (ts: number): SessionView => ({
       id: "x",
       project: "p",
+      account: ACC,
       lastActivity: ts,
       cost: { usage: emptyUsage(), tokens: 0, cost: 1, partial: false, unknownModels: [] },
       mainCost: { usage: emptyUsage(), tokens: 0, cost: 1, partial: false, unknownModels: [] },
@@ -150,6 +165,7 @@ describe("dailySeries", () => {
         {
           id: "x",
           project: "p",
+          account: ACC,
           lastActivity: now,
           cost: { usage: emptyUsage(), tokens: 0, cost: 2, partial: false, unknownModels: [] },
           mainCost: { usage: emptyUsage(), tokens: 0, cost: 0, partial: false, unknownModels: [] },
@@ -168,5 +184,80 @@ describe("dailySeries", () => {
 describe("prettyProject", () => {
   it("keeps the last two path segments", () => {
     expect(prettyProject("-Users-me-Documents-projects-klozy")).toBe("projects/klozy");
+  });
+});
+
+function cost(n: number): CostResult {
+  return {
+    usage: { input: n, output: 0, cacheCreation: 0, cacheRead: 0 },
+    tokens: n,
+    cost: n,
+    partial: false,
+    unknownModels: [],
+  };
+}
+function mkView(
+  id: string,
+  account: Account,
+  workspace: Workspace | undefined,
+  c: number,
+  lastActivity = 0,
+): SessionView {
+  return {
+    id,
+    project: "proj",
+    account,
+    workspace,
+    lastActivity,
+    cost: cost(c),
+    mainCost: cost(c),
+    teammates: [],
+  };
+}
+
+describe("buildTree", () => {
+  const perso: Account = { dir: "/h/.claude-personal", label: "Personal" };
+  const tala: Account = { dir: "/h/.claude-talabat", label: "Talabat" };
+  const ws: Workspace = { id: "W1", title: "[Talabat] Flutter App" };
+
+  it("groups account -> workspace -> session and rolls up cost, sorted desc", () => {
+    const tree = buildTree([
+      mkView("s1", tala, ws, 10),
+      mkView("s2", tala, ws, 5),
+      mkView("s3", perso, undefined, 3),
+    ]);
+    expect(tree.map((n) => [n.label, n.cost.cost])).toEqual([
+      ["Talabat", 15],
+      ["Personal", 3],
+    ]);
+    const talaWs = tree[0].children;
+    expect(talaWs.map((n) => [n.label, n.level, n.cost.cost])).toEqual([
+      ["[Talabat] Flutter App", "workspace", 15],
+    ]);
+    expect(talaWs[0].children.map((s) => s.cost.cost)).toEqual([10, 5]);
+  });
+
+  it("buckets sessions without a workspace under 'unknown workspace'", () => {
+    const tree = buildTree([mkView("s3", perso, undefined, 3)]);
+    expect(tree[0].children[0].label).toBe("unknown workspace");
+  });
+});
+
+describe("flatSessions", () => {
+  it("flattens views to filter rows with account/workspace labels", () => {
+    const tala: Account = { dir: "/h/.claude-talabat", label: "Talabat" };
+    const flat = flatSessions([mkView("s1", tala, { id: "W1", title: "WS" }, 10, 42)]);
+    expect(flat).toEqual([
+      {
+        id: "s1",
+        label: "proj",
+        account: "Talabat",
+        workspace: "WS",
+        cost: 10,
+        partial: false,
+        tokens: 10,
+        lastActivity: 42,
+      },
+    ]);
   });
 });
