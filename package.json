@@ -1,0 +1,36 @@
+{
+  "name": "cmux-cost",
+  "version": "0.1.0",
+  "description": "Surface AI coding-agent token cost into cmux: live per-workspace badge, dock TUI, and an HTML report.",
+  "type": "module",
+  "bin": {
+    "cmux-cost": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "cmux",
+    "claude-code",
+    "tokens",
+    "cost",
+    "ccusage"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
