@@ -1,18 +1,21 @@
 import {
   teammateLeaderboard,
   type DayPoint,
+  type FlatSession,
   type SessionView,
   type TeammateTotal,
+  type TreeNode,
   type WindowTotals,
 } from "./aggregate.js";
 import { fmtCost, fmtTimeAgo, fmtTokens, fmtUsd } from "./format.js";
-import type { CostResult } from "./types.js";
 
 export interface ReportData {
   generatedAt: number;
   currency: string;
   totals: WindowTotals;
   sessions: SessionView[];
+  tree: TreeNode[];
+  flat: FlatSession[];
   series: DayPoint[];
   warnings: string[];
 }
@@ -46,8 +49,8 @@ export function renderHtml(data: ReportData): string {
       </section>`
     : "";
 
-  const rowsHtml = data.sessions
-    .map((v, i) => sessionRows(v, i, currency, data.generatedAt))
+  const treeHtml = data.tree
+    .map((n) => treeNode(n, currency, data.generatedAt))
     .join("");
 
   const warnHtml = data.warnings.length
@@ -71,13 +74,12 @@ ${warnHtml}
 <section class="kpis">${kpiHtml}</section>
 ${boardHtml}
 <section class="chart"><h2>Daily spend</h2>${chart(data.series, currency)}</section>
-<section class="sessions">
-  <h2>Sessions <span class="hint">— click a row to see its teammates</span></h2>
-  <table>
-    <thead><tr><th></th><th>Session</th><th>Project</th><th class="num">Cost</th><th class="num">Tokens</th><th class="num">When</th></tr></thead>
-    <tbody>${rowsHtml || `<tr><td colspan="6" class="empty">No sessions found.</td></tr>`}</tbody>
-  </table>
+<section class="breakdown-section">
+  <h2>Breakdown <span class="hint">— account → workspace → session → teammate; click to expand</span></h2>
+  ${filterBar(data)}
+  <div class="tree">${treeHtml || `<div class="empty">No sessions found.</div>`}</div>
 </section>
+<script>window.__CMUX_COST__=${json({ flat: data.flat, currency, generatedAt: data.generatedAt })};</script>
 <script>${JS}</script>
 </body>
 </html>`;
@@ -99,47 +101,51 @@ function leaderboard(items: TeammateTotal[], currency: string): string {
     .join("")}</div>`;
 }
 
-function sessionRows(v: SessionView, i: number, currency: string, now: number): string {
-  const hasMates = v.teammates.length > 0;
-  const caret = hasMates ? `<span class="caret">▸</span>` : "";
-  const main = `<tr class="session${hasMates ? " expandable" : ""}" data-row="${i}">
-    <td class="caret-cell">${caret}</td>
-    <td class="mono">${esc(v.id.slice(0, 8))}</td>
-    <td>${esc(v.project)}</td>
-    <td class="num">${esc(fmtCost(v.cost, currency))}</td>
-    <td class="num">${esc(fmtTokens(v.cost.tokens))}</td>
-    <td class="num dim">${esc(fmtTimeAgo(v.lastActivity, now))}</td>
-  </tr>`;
-  if (!hasMates) return main;
+function filterBar(data: ReportData): string {
+  const accounts = [...new Set(data.flat.map((f) => f.account))];
+  const workspaces = [...new Set(data.flat.map((f) => f.workspace))];
+  const chips = (kind: string, names: string[]): string =>
+    names
+      .map(
+        (n) =>
+          `<label class="chip"><input type="checkbox" checked data-filter="${kind}" value="${esc(
+            n,
+          )}" /> ${esc(n)}</label>`,
+      )
+      .join("");
+  return `<div class="filters">
+    <div class="filter-group"><span class="fg-label">Account</span>${chips("account", accounts)}</div>
+    <div class="filter-group"><span class="fg-label">Workspace</span>${chips("workspace", workspaces)}</div>
+    <input class="search" type="search" placeholder="search session…" data-filter="search" />
+  </div>`;
+}
 
-  const items: Array<{ name: string; task: string; cost: CostResult; lead: boolean }> = [
-    { name: "lead", task: "orchestrator", cost: v.mainCost, lead: true },
-    ...v.teammates.map((t) => ({
-      name: t.name ?? t.label,
-      task: t.name ? t.label.replace(`${t.name} — `, "") : "",
-      cost: t.cost,
-      lead: false,
-    })),
-  ].sort((a, b) => b.cost.cost - a.cost.cost);
-
-  const max = Math.max(0.0001, ...items.map((it) => it.cost.cost));
-  const breakdown = items
-    .map((it) => {
-      const pct = (it.cost.cost / max) * 100;
-      const task = it.task ? `<span class="bk-task">${esc(it.task)}</span>` : "";
-      return `<div class="bk${it.lead ? " lead" : ""}">
-        <div class="bk-label"><span class="bk-name">${esc(it.name)}</span> ${task}</div>
-        <div class="bk-bar"><span style="width:${pct.toFixed(1)}%"></span></div>
-        <div class="bk-num">${esc(fmtCost(it.cost, currency))}</div>
-        <div class="bk-num dim">${esc(fmtTokens(it.cost.tokens))}</div>
-      </div>`;
-    })
-    .join("");
-
-  return (
-    main +
-    `<tr class="panel" data-parent="${i}"><td colspan="6"><div class="breakdown">${breakdown}</div></td></tr>`
-  );
+function treeNode(n: TreeNode, currency: string, now: number): string {
+  const hasKids = n.children.length > 0;
+  const caret = hasKids ? `<span class="caret">▸</span>` : `<span class="caret-spacer"></span>`;
+  const attrs =
+    n.level === "account"
+      ? ` data-account="${esc(n.label)}"`
+      : n.level === "workspace"
+        ? ` data-workspace="${esc(n.label)}"`
+        : n.level === "session"
+          ? ` data-session="${esc(n.label)}"`
+          : "";
+  const kids = hasKids
+    ? `<div class="tnode-children">${n.children
+        .map((child) => treeNode(child, currency, now))
+        .join("")}</div>`
+    : "";
+  return `<div class="tnode level-${n.level}"${attrs}>
+    <div class="tnode-row${hasKids ? " expandable" : ""}">
+      ${caret}
+      <span class="tnode-label">${esc(n.label)}</span>
+      <span class="tnode-cost">${esc(fmtCost(n.cost, currency))}</span>
+      <span class="tnode-tokens dim">${esc(fmtTokens(n.cost.tokens))}</span>
+      <span class="tnode-when dim">${esc(fmtTimeAgo(n.lastActivity, now))}</span>
+    </div>
+    ${kids}
+  </div>`;
 }
 
 function chart(series: DayPoint[], currency: string): string {
@@ -185,30 +191,113 @@ section{margin-bottom:24px}
 .bk-num{text-align:right;font-variant-numeric:tabular-nums}
 .chart .bars{width:100%;height:140px;background:var(--panel);border:1px solid var(--line);border-radius:10px}
 .chart .bars rect{fill:var(--accent);opacity:.85}.chart .bars rect:hover{opacity:1}
-table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
-th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line)}
-th{color:var(--dim);font-weight:500;font-size:12px}
-td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .dim{color:var(--dim)}
-.expandable{cursor:pointer}.expandable:hover{background:#1c2128}
-.caret-cell{width:24px;color:var(--dim)}.caret{display:inline-block;transition:transform .12s}
-.session.open .caret{transform:rotate(90deg)}
-tr.panel{display:none}tr.panel.show{display:table-row}
-tr.panel>td{background:#0f141a;padding:10px 16px}
-.breakdown{display:flex;flex-direction:column;gap:2px}
 .empty{text-align:center;color:var(--dim);padding:24px}
+.filters{display:flex;flex-wrap:wrap;gap:14px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+.filter-group{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.fg-label{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.05em;margin-right:2px}
+.chip{display:inline-flex;align-items:center;gap:5px;background:#0d1117;border:1px solid var(--line);border-radius:14px;padding:3px 9px;font-size:12px;cursor:pointer}
+.chip input{margin:0}
+.search{margin-left:auto;background:#0d1117;border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:5px 9px;font:13px inherit}
+.tree{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px}
+.tnode-children{display:none;margin-left:18px;border-left:1px solid var(--line);padding-left:8px}
+.tnode.open>.tnode-children{display:block}
+.tnode-row{display:grid;grid-template-columns:18px 1fr 90px 64px 44px;align-items:center;gap:10px;padding:5px 2px;border-bottom:1px solid #20262e}
+.tnode-row.expandable{cursor:pointer}.tnode-row.expandable:hover{background:#1c2128}
+.tnode-label{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.level-account>.tnode-row .tnode-label{font-weight:600}
+.level-workspace>.tnode-row .tnode-label{color:#79c0ff}
+.tnode-cost,.tnode-tokens,.tnode-when{text-align:right;font-variant-numeric:tabular-nums}
+.caret{display:inline-block;transition:transform .12s;color:var(--dim)}
+.caret-spacer{display:inline-block;width:1em}
+.tnode.open>.tnode-row .caret{transform:rotate(90deg)}
+.tnode.hidden{display:none}
 `;
 
 const JS = `
-document.querySelectorAll('tr.expandable').forEach(function(row){
-  row.addEventListener('click',function(){
-    var i=row.getAttribute('data-row');
-    row.classList.toggle('open');
-    document.querySelectorAll('tr.panel[data-parent="'+i+'"]').forEach(function(p){p.classList.toggle('show');});
+(function(){
+  var data = window.__CMUX_COST__ || { flat: [], currency: "USD" };
+
+  document.querySelectorAll('.tnode-row.expandable').forEach(function(row){
+    row.addEventListener('click', function(){ row.parentElement.classList.toggle('open'); });
   });
-});
+
+  function checked(kind){
+    var set = {};
+    document.querySelectorAll('input[data-filter="'+kind+'"]').forEach(function(cb){
+      if(cb.checked) set[cb.value]=true;
+    });
+    return set;
+  }
+  function searchTerm(){
+    var el = document.querySelector('input[data-filter="search"]');
+    return (el && el.value ? el.value : '').toLowerCase();
+  }
+
+  function apply(){
+    var accs = checked('account');
+    var wss = checked('workspace');
+    var term = searchTerm();
+
+    document.querySelectorAll('.tnode.level-account').forEach(function(acc){
+      var accName = acc.getAttribute('data-account');
+      var accOn = !!accs[accName];
+      var anyAccVisible = false;
+      acc.querySelectorAll('.tnode.level-workspace').forEach(function(ws){
+        var wsName = ws.getAttribute('data-workspace');
+        var wsOn = accOn && !!wss[wsName];
+        var anyWsVisible = false;
+        ws.querySelectorAll('.tnode.level-session').forEach(function(se){
+          var label = (se.getAttribute('data-session')||'').toLowerCase();
+          var on = wsOn && (!term || label.indexOf(term) >= 0);
+          se.classList.toggle('hidden', !on);
+          if(on) anyWsVisible = true;
+        });
+        ws.classList.toggle('hidden', !anyWsVisible);
+        if(anyWsVisible) anyAccVisible = true;
+      });
+      acc.classList.toggle('hidden', !anyAccVisible);
+    });
+
+    recomputeKpis(accs, wss, term);
+  }
+
+  function recomputeKpis(accs, wss, term){
+    var now = data.generatedAt || Date.now();
+    var DAY = 86400000;
+    var d0 = new Date(now); d0.setHours(0,0,0,0);
+    var spans = { today: d0.getTime(), week: now-7*DAY, month: now-30*DAY, all: 0 };
+    var sums = { today:0, week:0, month:0, all:0 };
+    data.flat.forEach(function(f){
+      if(!accs[f.account] || !wss[f.workspace]) return;
+      if(term && f.label.toLowerCase().indexOf(term) < 0) return;
+      for(var k in spans){ if(f.lastActivity >= spans[k]) sums[k]+=f.cost; }
+    });
+    var order = ['today','week','month','all'];
+    document.querySelectorAll('.kpi-value').forEach(function(el, i){
+      var v = sums[order[i]];
+      el.textContent = (data.currency==='USD'?'$':'') + (v<1? v.toFixed(4): v.toFixed(2));
+    });
+  }
+
+  document.querySelectorAll('input[data-filter]').forEach(function(el){
+    el.addEventListener('input', apply);
+    el.addEventListener('change', apply);
+  });
+  document.querySelectorAll('.tnode.level-account').forEach(function(a){ a.classList.add('open'); });
+})();
 `;
+
+function json(value: unknown): string {
+  // Safe to inline in a <script>: escape the sequences that could break out.
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
 
 function esc(s: string): string {
   return s
