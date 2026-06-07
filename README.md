@@ -40,6 +40,7 @@ cmux-cost report          # generate the HTML dashboard and open it in cmux
 cmux-cost today           # today / 7d / 30d / all-time totals
 cmux-cost sessions        # table of sessions, newest first
 cmux-cost session <id>    # per-teammate breakdown for one session
+cmux-cost accounts        # choose/label which Claude accounts to include
 cmux-cost uninstall       # remove the hook + dock control
 ```
 
@@ -57,6 +58,20 @@ cmux-cost uninstall       # remove the hook + dock control
   costs. If a model's price can't be resolved, the figure is shown as a lower
   bound with a `+` (e.g. `$152.02+`) rather than a fabricated exact number.
 
+## Accounts & workspaces
+
+- **Accounts** — cmux-cost scans `~/.claude*` (and `~/.config/claude`) for Claude
+  config dirs that contain a `projects/` folder. On first run (`cmux-cost report`
+  in a terminal) it asks which to include and how to label them; `cmux-cost
+  accounts` re-runs that picker, `cmux-cost accounts --list` prints the current
+  set. Non-interactive runs (dock, hook) include every discovered dir.
+- **Workspaces** — the `Stop` hook records which cmux workspace each session ran
+  in (`CMUX_WORKSPACE_ID` → title via `cmux list-workspaces`) into
+  `~/.cache/cmux-cost/workspaces.json`. This is captured going forward; sessions
+  that ran before the hook recorded them appear under "unknown workspace".
+- The HTML report's **Breakdown** is a collapsible tree:
+  account → workspace → session → teammate, filterable by account and workspace.
+
 ## Configuration
 
 `~/.config/cmux-cost/config.json` (all optional):
@@ -66,7 +81,7 @@ cmux-cost uninstall       # remove the hook + dock control
   "currency": "USD",
   "budgetSoft": 5,      // badge turns orange above this (per session)
   "budgetHard": 15,     // badge turns red above this
-  "projectRoots": [],   // [] = auto-discover (honours CLAUDE_CONFIG_DIR)
+  "accounts": [],       // [] = scan + first-run setup; else [{dir,label,enabled}]
   "priceOverrides": {}  // { "some-model-id": "anthropic/claude-opus-4.8" }
 }
 ```
