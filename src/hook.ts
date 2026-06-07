@@ -1,5 +1,5 @@
 import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import { badgeColor, badgeText } from "./badge.js";
 import { loadConfig } from "./config.js";
 import { costByModel, mergeByModel } from "./cost.js";
@@ -8,6 +8,7 @@ import { parseFile } from "./parse.js";
 import { hookLogPath, pricesCachePath } from "./paths.js";
 import { loadPriceTable } from "./pricing.js";
 import { setStatus } from "./cmux.js";
+import { recordWorkspace } from "./workspaces.js";
 
 interface HookPayload {
   session_id?: string;
@@ -46,6 +47,11 @@ export async function runHook(stdinText: string): Promise<void> {
       color: badgeColor(cost, cfg),
     });
     log(`ok: ${workspace} ${badgeText(cost, cfg.currency)}`);
+
+    const sessionId = payload.transcript_path
+      ? basename(payload.transcript_path).replace(/\.jsonl$/, "")
+      : payload.session_id;
+    if (sessionId) recordWorkspace(sessionId, workspace, Date.now());
   } catch (err) {
     log(`error: ${String(err)}`);
   }
