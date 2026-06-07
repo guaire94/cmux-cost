@@ -37,7 +37,8 @@ export function costByModel(
   return {
     usage,
     tokens: totalTokens(usage),
-    cost: unknown.length > 0 ? null : round(cost),
+    cost: round(cost),
+    partial: unknown.length > 0,
     unknownModels: unknown,
   };
 }
@@ -55,17 +56,21 @@ export function mergeByModel(
   return out;
 }
 
-/** Add two cost results (used for rollups). A null cost stays null if either side is null. */
+/** Add two cost results (used for rollups): known costs sum; partial is sticky. */
 export function addCost(a: CostResult, b: CostResult): CostResult {
   const usage = addUsage(a.usage, b.usage);
   const unknown = [...new Set([...a.unknownModels, ...b.unknownModels])];
-  const cost =
-    a.cost === null || b.cost === null ? null : round(a.cost + b.cost);
-  return { usage, tokens: totalTokens(usage), cost, unknownModels: unknown };
+  return {
+    usage,
+    tokens: totalTokens(usage),
+    cost: round(a.cost + b.cost),
+    partial: a.partial || b.partial,
+    unknownModels: unknown,
+  };
 }
 
 export function zeroCost(): CostResult {
-  return { usage: emptyUsage(), tokens: 0, cost: 0, unknownModels: [] };
+  return { usage: emptyUsage(), tokens: 0, cost: 0, partial: false, unknownModels: [] };
 }
 
 function round(n: number): number {

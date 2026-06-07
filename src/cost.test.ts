@@ -35,14 +35,19 @@ describe("costByModel", () => {
     // 1000*3e-6 + 1000*15e-6 + 1000*3.75e-6 + 1e6*3e-7 = 0.003+0.015+0.00375+0.3
     expect(r.cost).toBeCloseTo(0.32175, 6);
     expect(r.tokens).toBe(1_003_000);
+    expect(r.partial).toBe(false);
     expect(r.unknownModels).toEqual([]);
   });
 
-  it("returns null cost but real tokens when a price is missing", () => {
-    const byModel = new Map<string, Usage>([["gpt-4o", usage({ input: 10 })]]);
+  it("sums known costs and flags partial when a price is missing", () => {
+    const byModel = new Map<string, Usage>([
+      ["claude-sonnet-4-6", usage({ input: 1000 })],
+      ["gpt-4o", usage({ input: 10 })],
+    ]);
     const r = costByModel(byModel, table);
-    expect(r.cost).toBeNull();
-    expect(r.tokens).toBe(10);
+    expect(r.cost).toBeCloseTo(0.003, 9); // only the known model counted
+    expect(r.partial).toBe(true);
+    expect(r.tokens).toBe(1010);
     expect(r.unknownModels).toEqual(["gpt-4o"]);
   });
 });
@@ -65,15 +70,18 @@ describe("addCost", () => {
     expect(sum.tokens).toBe(2000);
   });
 
-  it("stays null if either side is unknown", () => {
+  it("keeps the known sum and stays partial if either side is partial", () => {
     const known = costByModel(new Map([["claude-sonnet-4-6", usage({ input: 1000 })]]), table);
     const unknown = costByModel(new Map([["gpt-4o", usage({ input: 1 })]]), table);
-    expect(addCost(known, unknown).cost).toBeNull();
+    const sum = addCost(known, unknown);
+    expect(sum.cost).toBeCloseTo(0.003, 9);
+    expect(sum.partial).toBe(true);
   });
 
   it("zeroCost is an additive identity for tokens", () => {
     const z = zeroCost();
     expect(z.cost).toBe(0);
+    expect(z.partial).toBe(false);
     expect(z.tokens).toBe(0);
   });
 });

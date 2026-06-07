@@ -14,11 +14,17 @@ export interface ModelPrice {
   cacheWrite: number;
 }
 
-/** Result of costing a usage bundle. `cost` is null when any model price is missing. */
+/**
+ * Result of costing a usage bundle. `cost` is always the sum of the *known*
+ * model costs (a real number, a lower bound). `partial` is true when at least
+ * one model's price could not be resolved, so the UI can show e.g. "$1.20+"
+ * instead of fabricating an exact figure.
+ */
 export interface CostResult {
   usage: Usage;
   tokens: number;
-  cost: number | null;
+  cost: number;
+  partial: boolean;
   unknownModels: string[];
 }
 
