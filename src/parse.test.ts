@@ -52,6 +52,16 @@ describe("parseTranscript", () => {
     expect(byModel.get("unknown")?.output).toBe(4);
   });
 
+  it("skips non-billed <synthetic> messages", () => {
+    const content = [
+      line({ message: { model: "<synthetic>", usage: { input_tokens: 999, output_tokens: 999 } } }),
+      line({ message: { model: "claude-sonnet-4-6", usage: { input_tokens: 5 } } }),
+    ].join("\n");
+    const byModel = parseTranscript(content);
+    expect(byModel.has("<synthetic>")).toBe(false);
+    expect(byModel.get("claude-sonnet-4-6")?.input).toBe(5);
+  });
+
   it("tolerates empty input", () => {
     expect(parseTranscript("").size).toBe(0);
     expect(parseTranscript("\n\n").size).toBe(0);

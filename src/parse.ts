@@ -32,6 +32,9 @@ export function parseTranscript(content: string): Map<string, Usage> {
 
     const model =
       (message as { model?: string }).model?.trim() || "unknown";
+    // Claude Code marks non-billed (synthetic/injected/interrupted) messages
+    // with "<synthetic>" — they are not real API calls, so skip them entirely.
+    if (model === "<synthetic>") continue;
     const u: Usage = {
       input: num(usage.input_tokens),
       output: num(usage.output_tokens),
