@@ -4,6 +4,7 @@ import {
   dailySeries,
   prettyProject,
   startOfLocalDay,
+  teammateLeaderboard,
   windowTotals,
   type SessionView,
 } from "./aggregate.js";
@@ -38,7 +39,7 @@ function session(over: Partial<Session>): Session {
 }
 
 describe("buildSessionView", () => {
-  it("combines main + teammate usage and lists teammates", () => {
+  it("combines main + teammate usage, exposes mainCost, and sorts teammates by cost", () => {
     const s = session({
       main: {
         id: "s1",
@@ -47,18 +48,76 @@ describe("buildSessionView", () => {
       },
       teammates: [
         {
-          id: "a1",
-          path: "/x/s1/subagents/agent-a1.jsonl",
-          label: "Selling",
+          id: "small",
+          path: "/x/s1/subagents/agent-small.jsonl",
+          name: "small-dev",
+          label: "small-dev — tiny",
+          byModel: new Map([["claude-sonnet-4-6", usage({ output: 100 })]]),
+        },
+        {
+          id: "big",
+          path: "/x/s1/subagents/agent-big.jsonl",
+          name: "big-dev",
+          label: "big-dev — huge",
           byModel: new Map([["claude-sonnet-4-6", usage({ output: 1000 })]]),
         },
       ],
     });
     const v = buildSessionView(s, prices);
-    expect(v.cost.cost).toBeCloseTo(1000 * 3e-6 + 1000 * 15e-6, 9);
-    expect(v.teammates).toHaveLength(1);
-    expect(v.teammates[0]!.label).toBe("Selling");
+    expect(v.cost.cost).toBeCloseTo(1000 * 3e-6 + 1100 * 15e-6, 9);
+    expect(v.mainCost.cost).toBeCloseTo(1000 * 3e-6, 9);
+    expect(v.teammates.map((t) => t.name)).toEqual(["big-dev", "small-dev"]);
     expect(v.project).toBe("me/proj");
+  });
+});
+
+describe("teammateLeaderboard", () => {
+  it("aggregates by name across sessions and sorts by cost", () => {
+    const c = (cost: number): SessionView["cost"] => ({
+      usage: emptyUsage(),
+      tokens: 0,
+      cost,
+      partial: false,
+      unknownModels: [],
+    });
+    const view = (id: string, mates: Array<{ name: string; cost: number }>): SessionView => ({
+      id,
+      project: "p",
+      lastActivity: 0,
+      cost: c(0),
+      mainCost: c(0),
+      teammates: mates.map((m) => ({ id: m.name, name: m.name, label: m.name, cost: c(m.cost) })),
+    });
+    const board = teammateLeaderboard([
+      view("s1", [{ name: "auth-dev", cost: 2 }, { name: "home-dev", cost: 5 }]),
+      view("s2", [{ name: "auth-dev", cost: 3 }]),
+    ]);
+    expect(board.map((b) => [b.name, b.cost.cost, b.sessions])).toEqual([
+      ["auth-dev", 5, 2],
+      ["home-dev", 5, 1],
+    ]);
+  });
+
+  it("excludes unnamed (one-off) teammates from the leaderboard", () => {
+    const c = (cost: number): SessionView["cost"] => ({
+      usage: emptyUsage(),
+      tokens: 0,
+      cost,
+      partial: false,
+      unknownModels: [],
+    });
+    const v: SessionView = {
+      id: "s",
+      project: "p",
+      lastActivity: 0,
+      cost: c(0),
+      mainCost: c(0),
+      teammates: [
+        { id: "1", name: "auth-dev", label: "auth-dev — x", cost: c(4) },
+        { id: "2", label: "Some Explore scope", cost: c(9) }, // no name
+      ],
+    };
+    expect(teammateLeaderboard([v]).map((b) => b.name)).toEqual(["auth-dev"]);
   });
 });
 
@@ -71,6 +130,7 @@ describe("windowTotals", () => {
       project: "p",
       lastActivity: ts,
       cost: { usage: emptyUsage(), tokens: 0, cost: 1, partial: false, unknownModels: [] },
+      mainCost: { usage: emptyUsage(), tokens: 0, cost: 1, partial: false, unknownModels: [] },
       teammates: [],
     });
     const views = [mk(now), mk(now - 3 * day), mk(now - 10 * day), mk(now - 40 * day)];
@@ -92,6 +152,7 @@ describe("dailySeries", () => {
           project: "p",
           lastActivity: now,
           cost: { usage: emptyUsage(), tokens: 0, cost: 2, partial: false, unknownModels: [] },
+          mainCost: { usage: emptyUsage(), tokens: 0, cost: 0, partial: false, unknownModels: [] },
           teammates: [],
         },
       ],

@@ -33,7 +33,9 @@ export interface Transcript {
   /** session id (main) or agent id (teammate) */
   id: string;
   path: string;
-  /** human label — for teammates, derived from the first task prompt */
+  /** teammate's own name, when it self-introduces (e.g. "data-dev") */
+  name?: string;
+  /** human label — for teammates, "name — task" or the task alone */
   label?: string;
   byModel: Map<string, Usage>;
 }

@@ -20,8 +20,9 @@ function data(over: Partial<ReportData> = {}): ReportData {
         project: "me/proj",
         lastActivity: 1_700_000_000_000,
         cost: c(2.5, 1_200_000),
+        mainCost: c(1.4, 700_000),
         teammates: [
-          { id: "agent-1", label: "Selling <b>x</b>", cost: c(1.1, 500_000) },
+          { id: "agent-1", name: "auth-dev", label: "auth-dev — Selling <b>x</b>", cost: c(1.1, 500_000) },
         ],
       },
     ],
@@ -42,7 +43,14 @@ describe("renderHtml", () => {
     expect(html).toContain("<script>");
     expect(html).toContain("$2.50"); // session cost
     expect(html).toContain("1.2M"); // tokens
-    expect(html).toContain('data-parent="0"'); // teammate row
+    expect(html).toContain('data-parent="0"'); // teammate breakdown panel
+  });
+
+  it("renders the teammate leaderboard with the teammate name", () => {
+    const html = renderHtml(data());
+    expect(html).toContain("Cost by teammate");
+    expect(html).toContain("auth-dev");
+    expect(html).toContain("lead"); // the orchestrator row in the breakdown
   });
 
   it("escapes HTML in labels", () => {

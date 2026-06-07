@@ -57,16 +57,25 @@ export function parseFile(path: string): Map<string, Usage> {
   return parseTranscript(content);
 }
 
+/** A teammate's identity, split into its own name and its task. */
+export interface Identity {
+  name?: string;
+  task?: string;
+}
+
 /**
- * Extract a short human label for a teammate/subagent from its transcript.
- * Preference order:
- *   1. a `summary="..."` attribute (cmux team teammates carry one), then
- *   2. text after a "Your scope:" marker (workflow/Explore subagents), then
- *   3. the first non-boilerplate prompt line.
- * Tags are stripped and the result is truncated.
+ * Extract a teammate/subagent's identity from its transcript:
+ *   - `name`: cmux team teammates introduce themselves as
+ *     "You are `data-dev` on team `x`".
+ *   - `task`: a `summary="..."` attribute, else text after "Your scope:",
+ *     else the first non-boilerplate prompt line.
+ * Tags are stripped and values truncated.
  */
-export function extractLabel(content: string): string | undefined {
+export function extractIdentity(content: string): Identity {
+  let name: string | undefined;
+  let task: string | undefined;
   let fallback: string | undefined;
+
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -79,26 +88,34 @@ export function extractLabel(content: string): string | undefined {
     const text = messageText(obj);
     if (!text) continue;
 
-    // cmux team teammates introduce themselves: You are `data-dev` on team `x`.
-    const name = text.match(/You are [`'"]?([A-Za-z0-9_-]+)[`'"]? on team/)?.[1];
-    const summary = text.match(/summary="([^"]+)"/)?.[1];
-    if (name) {
-      return (summary ? `${name} — ${clean(summary)}` : name).slice(0, 80);
+    if (!name) {
+      name = text.match(/You are [`'"]?([A-Za-z0-9_-]+)[`'"]? on team/)?.[1];
     }
-    if (summary) return clean(summary).slice(0, 80);
-
-    const marker = text.indexOf("Your scope:");
-    if (marker >= 0) {
-      const scoped = clean(text.slice(marker + "Your scope:".length));
-      if (scoped.length >= 4) return scoped.slice(0, 80);
+    if (!task) {
+      const summary = text.match(/summary="([^"]+)"/)?.[1];
+      if (summary) task = clean(summary).slice(0, 80);
     }
-
-    const cleaned = clean(text);
-    if (!fallback && cleaned.length >= 8 && !isBoilerplate(cleaned)) {
-      fallback = cleaned.slice(0, 80);
+    if (!task) {
+      const marker = text.indexOf("Your scope:");
+      if (marker >= 0) {
+        const scoped = clean(text.slice(marker + "Your scope:".length));
+        if (scoped.length >= 4) task = scoped.slice(0, 80);
+      }
     }
+    if (!fallback) {
+      const cleaned = clean(text);
+      if (cleaned.length >= 8 && !isBoilerplate(cleaned)) fallback = cleaned.slice(0, 80);
+    }
+    if (name && task) break;
   }
-  return fallback;
+  return { name, task: task ?? fallback };
+}
+
+/** Combined display label, e.g. "data-dev — Build auth feature". */
+export function extractLabel(content: string): string | undefined {
+  const { name, task } = extractIdentity(content);
+  if (name && task) return `${name} — ${task}`.slice(0, 80);
+  return name ?? task;
 }
 
 function clean(s: string): string {
@@ -113,7 +130,8 @@ function isBoilerplate(s: string): boolean {
   return (
     s.startsWith("This session is being continued") ||
     s.startsWith("Caveat:") ||
-    s.startsWith("system-reminder")
+    s.startsWith("system-reminder") ||
+    /^You are (working in|a |an |the )/i.test(s) // agent role/preamble lines
   );
 }
 

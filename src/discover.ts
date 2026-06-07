@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { extractLabel, parseFile } from "./parse.js";
+import { extractIdentity, parseFile } from "./parse.js";
 import { readFileSync } from "node:fs";
 import type { Session, Transcript } from "./types.js";
 
@@ -78,10 +78,16 @@ export function loadSession(meta: {
     } catch {
       // ignore
     }
+    const ident = extractIdentity(content);
+    const label =
+      ident.name && ident.task
+        ? `${ident.name} — ${ident.task}`
+        : ident.name ?? ident.task;
     return {
       id: basename(p).replace(/^agent-/, "").replace(/\.jsonl$/, ""),
       path: p,
-      label: extractLabel(content),
+      name: ident.name,
+      label,
       byModel: parseFile(p),
     };
   });

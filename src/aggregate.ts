@@ -4,6 +4,8 @@ import type { CostResult, Session } from "./types.js";
 
 export interface TeammateView {
   id: string;
+  /** teammate's own name when known (e.g. "data-dev"), else undefined */
+  name?: string;
   label: string;
   cost: CostResult;
 }
@@ -13,7 +15,14 @@ export interface SessionView {
   project: string;
   lastActivity: number;
   cost: CostResult; // main + teammates
+  mainCost: CostResult; // the lead/orchestrator transcript alone
   teammates: TeammateView[];
+}
+
+export interface TeammateTotal {
+  name: string;
+  cost: CostResult;
+  sessions: number;
 }
 
 export interface WindowTotals {
@@ -30,11 +39,14 @@ export interface DayPoint {
 
 /** Build a per-session view (with per-teammate breakdown) from raw usage. */
 export function buildSessionView(session: Session, prices: PriceTable): SessionView {
-  const teammates: TeammateView[] = session.teammates.map((t) => ({
-    id: t.id,
-    label: t.label ?? t.id,
-    cost: costByModel(t.byModel, prices),
-  }));
+  const teammates: TeammateView[] = session.teammates
+    .map((t) => ({
+      id: t.id,
+      name: t.name,
+      label: t.label ?? t.id,
+      cost: costByModel(t.byModel, prices),
+    }))
+    .sort((a, b) => b.cost.cost - a.cost.cost);
   const allUsage = mergeByModel([
     session.main.byModel,
     ...session.teammates.map((t) => t.byModel),
@@ -44,8 +56,32 @@ export function buildSessionView(session: Session, prices: PriceTable): SessionV
     project: prettyProject(session.project),
     lastActivity: session.lastActivity,
     cost: costByModel(allUsage, prices),
+    mainCost: costByModel(session.main.byModel, prices),
     teammates,
   };
+}
+
+/**
+ * Aggregate cost by teammate name across all sessions, highest-cost first.
+ * Only named teammates (cmux team members) are included — one-off Explore /
+ * workflow subagents are left to their per-session breakdown to keep this list
+ * a clean "team members ranked by cost". Recurring names are summed.
+ */
+export function teammateLeaderboard(views: SessionView[]): TeammateTotal[] {
+  const map = new Map<string, { cost: CostResult; sessions: Set<string> }>();
+  for (const v of views) {
+    for (const t of v.teammates) {
+      if (!t.name) continue;
+      const key = t.name;
+      const entry = map.get(key) ?? { cost: zeroCost(), sessions: new Set<string>() };
+      entry.cost = addCost(entry.cost, t.cost);
+      entry.sessions.add(v.id);
+      map.set(key, entry);
+    }
+  }
+  return [...map.entries()]
+    .map(([name, e]) => ({ name, cost: e.cost, sessions: e.sessions.size }))
+    .sort((a, b) => b.cost.cost - a.cost.cost);
 }
 
 /** Roll up sessions into today / 7d / 30d / all-time totals. */
