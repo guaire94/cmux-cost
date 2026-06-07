@@ -1,28 +1,8 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { extractIdentity, parseFile } from "./parse.js";
 import { readFileSync } from "node:fs";
-import type { Session, Transcript } from "./types.js";
-
-/**
- * Candidate Claude "projects" directories. Honours CLAUDE_CONFIG_DIR first,
- * then common defaults. Only existing directories are returned.
- */
-export function defaultProjectRoots(): string[] {
-  const candidates: string[] = [];
-  const cfg = process.env.CLAUDE_CONFIG_DIR?.trim();
-  if (cfg) candidates.push(join(cfg, "projects"));
-  candidates.push(join(homedir(), ".claude", "projects"));
-  candidates.push(join(homedir(), ".config", "claude", "projects"));
-  candidates.push(join(homedir(), ".claude-personal", "projects"));
-  const seen = new Set<string>();
-  return candidates.filter((p) => {
-    if (seen.has(p)) return false;
-    seen.add(p);
-    return existsSync(p) && safeIsDir(p);
-  });
-}
+import type { Account, Session, Transcript } from "./types.js";
 
 /** List main session JSONL files across the given roots, with their project dir. */
 export function listSessionFiles(
@@ -60,12 +40,15 @@ export function subagentFiles(mainPath: string): string[] {
 }
 
 /** Load one full session (main transcript + teammates) with parsed usage. */
-export function loadSession(meta: {
-  id: string;
-  project: string;
-  mainPath: string;
-  mtime?: number;
-}): Session {
+export function loadSession(
+  meta: {
+    id: string;
+    project: string;
+    mainPath: string;
+    mtime?: number;
+  },
+  account: Account,
+): Session {
   const main: Transcript = {
     id: meta.id,
     path: meta.mainPath,
@@ -93,6 +76,7 @@ export function loadSession(meta: {
   });
   return {
     id: meta.id,
+    account,
     project: meta.project,
     mainPath: meta.mainPath,
     main,
@@ -101,11 +85,17 @@ export function loadSession(meta: {
   };
 }
 
-/** Load all sessions across roots, newest first. */
-export function loadAllSessions(roots: string[]): Session[] {
-  return listSessionFiles(roots)
-    .map((m) => loadSession(m))
-    .sort((a, b) => b.lastActivity - a.lastActivity);
+/** Load all sessions across the given accounts, newest first, each tagged. */
+export function loadAllSessions(accounts: Account[]): Session[] {
+  const out: Session[] = [];
+  for (const account of accounts) {
+    const root = join(account.dir, "projects");
+    if (!safeIsDir(root)) continue;
+    for (const meta of listSessionFiles([root])) {
+      out.push(loadSession(meta, account));
+    }
+  }
+  return out.sort((a, b) => b.lastActivity - a.lastActivity);
 }
 
 function safeReaddir(p: string): string[] {
