@@ -65,10 +65,13 @@ cmux-cost uninstall       # remove the hook + dock control
   in a terminal) it asks which to include and how to label them; `cmux-cost
   accounts` re-runs that picker, `cmux-cost accounts --list` prints the current
   set. Non-interactive runs (dock, hook) include every discovered dir.
-- **Workspaces** — the `Stop` hook records which cmux workspace each session ran
-  in (`CMUX_WORKSPACE_ID` → title via `cmux list-workspaces`) into
-  `~/.cache/cmux-cost/workspaces.json`. This is captured going forward; sessions
-  that ran before the hook recorded them appear under "unknown workspace".
+- **Workspaces & session names** — the `Stop` hook records which cmux workspace
+  each session ran in (`CMUX_WORKSPACE_ID` → title via `cmux list-workspaces`)
+  and the session's cmux **tab title** (`CMUX_SURFACE_ID` → title via
+  `cmux list-pane-surfaces`, e.g. "Refactor cost report") into
+  `~/.cache/cmux-cost/workspaces.json`. Both are captured going forward; sessions
+  that ran before appear under "unknown workspace" and fall back to a short
+  `id · project` name.
 - The HTML report is **account-first**: four global totals (today / 7d / 30d /
   all-time) sit on top, then a tab per Claude account. Selecting an account shows
   only its data — cost-by-teammate, daily spend, and a collapsible
