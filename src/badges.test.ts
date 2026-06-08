@@ -15,28 +15,38 @@ const cost = (c: number, t: number) => ({
   unknownModels: [] as string[],
 });
 
-const view = (id: string, ws: Workspace | undefined, c: number): SessionView => ({
+const view = (
+  id: string,
+  ws: Workspace | undefined,
+  c: number,
+  lastActivity = 0,
+): SessionView => ({
   id,
   project: "p",
   account: ACC,
   workspace: ws,
-  lastActivity: 0,
+  lastActivity,
   cost: cost(c, c * 1000),
   mainCost: cost(c, c * 1000),
   teammates: [],
 });
 
 describe("workspaceBadges", () => {
-  it("sums cost per workspace and skips sessions with no workspace", () => {
+  it("shows the most recent session per workspace and skips unknown-workspace sessions", () => {
     const w1: Workspace = { id: "W1", title: "One" };
     const w2: Workspace = { id: "W2", title: "Two" };
     const badges = workspaceBadges(
-      [view("a", w1, 2), view("b", w1, 1), view("c", w2, 8), view("d", undefined, 99)],
+      [
+        view("old", w1, 2, 100),
+        view("new", w1, 7, 200), // newer -> wins for W1
+        view("c", w2, 8, 50),
+        view("d", undefined, 99, 999),
+      ],
       cfg,
     );
     const byId = Object.fromEntries(badges.map((b) => [b.workspaceId, b]));
     expect(Object.keys(byId).sort()).toEqual(["W1", "W2"]);
-    expect(byId.W1!.text).toContain("$3.00"); // 2 + 1
+    expect(byId.W1!.text).toContain("$7.00"); // most recent, not 2+7
     expect(byId.W2!.text).toContain("$8.00");
   });
 

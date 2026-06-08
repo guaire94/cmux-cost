@@ -1,9 +1,7 @@
 import type { SessionView } from "./aggregate.js";
 import { badgeColor, badgeText } from "./badge.js";
 import { setStatus } from "./cmux.js";
-import { addCost, zeroCost } from "./cost.js";
 import type { Config } from "./config.js";
-import type { CostResult } from "./types.js";
 
 export interface WorkspaceBadge {
   workspaceId: string;
@@ -12,21 +10,23 @@ export interface WorkspaceBadge {
 }
 
 /**
- * Sum cost per cmux workspace and format a badge for each. Pure — only sessions
- * carrying a workspace id contribute (sessions with an unknown workspace can't
- * be placed on a cmux badge).
+ * One badge per cmux workspace, showing its MOST RECENT session's cost — the
+ * same number the `Stop` hook would have set (budget colours are tuned per
+ * session, so summing the workspace's whole history would just paint everything
+ * red). Only sessions carrying a workspace id can be placed on a cmux badge.
  */
 export function workspaceBadges(views: SessionView[], cfg: Config): WorkspaceBadge[] {
-  const map = new Map<string, CostResult>();
+  const latest = new Map<string, SessionView>();
   for (const v of views) {
     const id = v.workspace?.id;
     if (!id) continue;
-    map.set(id, addCost(map.get(id) ?? zeroCost(), v.cost));
+    const cur = latest.get(id);
+    if (!cur || v.lastActivity > cur.lastActivity) latest.set(id, v);
   }
-  return [...map.entries()].map(([workspaceId, cost]) => ({
+  return [...latest.entries()].map(([workspaceId, v]) => ({
     workspaceId,
-    text: badgeText(cost, cfg.currency),
-    color: badgeColor(cost, cfg),
+    text: badgeText(v.cost, cfg.currency),
+    color: badgeColor(v.cost, cfg),
   }));
 }
 
