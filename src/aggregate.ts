@@ -15,6 +15,8 @@ export interface SessionView {
   project: string;
   account: Account;
   workspace?: Workspace;
+  /** the cmux tab title the session ran in, when known (the human session name) */
+  title?: string;
   lastActivity: number;
   cost: CostResult; // main + teammates
   mainCost: CostResult; // the lead/orchestrator transcript alone
@@ -270,9 +272,12 @@ function sessionNode(v: SessionView): TreeNode {
     ),
   ];
   mates.sort(byCostDesc);
+  // Prefer the cmux tab title (the name the user gave the session); fall back to
+  // the short id + project when the session predates tab-title capture.
+  const label = v.title?.trim() ? v.title.trim() : `${v.id.slice(0, 8)} · ${v.project}`;
   return {
     key: `se:${v.id}`,
-    label: `${v.id.slice(0, 8)} · ${v.project}`,
+    label,
     level: "session",
     cost: v.cost,
     lastActivity: v.lastActivity,

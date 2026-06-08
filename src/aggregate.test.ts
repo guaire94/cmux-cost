@@ -242,6 +242,13 @@ describe("buildTree", () => {
     const tree = buildTree([mkView("s3", perso, undefined, 3)]);
     expect(tree[0]!.children[0]!.label).toBe("unknown workspace");
   });
+
+  it("labels a session by its cmux tab title, else the short id + project", () => {
+    const named: SessionView = { ...mkView("abcdef123456", tala, ws, 4), title: "Wire up auth" };
+    const tree = buildTree([named, mkView("99887766aabb", tala, ws, 2)]);
+    const sessions = tree[0]!.children[0]!.children;
+    expect(sessions.map((s) => s.label)).toEqual(["Wire up auth", "99887766 · proj"]);
+  });
 });
 
 describe("buildAccountSections", () => {

@@ -9,7 +9,7 @@ import { loadConfig, type Config } from "./config.js";
 import { loadAllSessions } from "./discover.js";
 import { pricesCachePath } from "./paths.js";
 import { loadPriceTable, type PriceTable } from "./pricing.js";
-import { loadWorkspaceMap, workspaceFor } from "./workspaces.js";
+import { loadWorkspaceMap, tabTitleFor, workspaceFor } from "./workspaces.js";
 import type { ReportData } from "./render-html.js";
 
 export interface LoadedViews {
@@ -31,6 +31,7 @@ export async function loadViews(): Promise<LoadedViews> {
   const views = sessions.map((s) => {
     const view = buildSessionView(s, prices);
     view.workspace = workspaceFor(wsMap, s.id);
+    view.title = tabTitleFor(wsMap, s.id);
     return view;
   });
   return { cfg, prices, views };
