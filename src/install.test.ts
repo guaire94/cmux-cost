@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  stripJsonComments,
   withClaudeHook,
-  withDockControl,
+  withCostButton,
   withoutClaudeHook,
-  withoutDockControl,
+  withoutCostButton,
 } from "./install.js";
 
 const CMD = "node cli.js hook";
@@ -39,32 +40,61 @@ describe("withoutClaudeHook", () => {
   });
 });
 
-describe("withDockControl", () => {
-  it("adds the control once and updates in place", () => {
-    const ctrl = { id: "cost", title: "💰 Cost", command: "node cli.js dock" };
-    const first = withDockControl({}, ctrl);
-    expect((first.controls as any[])).toHaveLength(1);
-    const updated = withDockControl(first, { ...ctrl, title: "Cost!" });
-    expect((updated.controls as any[])).toHaveLength(1);
-    expect((updated.controls as any[])[0].title).toBe("Cost!");
+const BTN_CMD = "node cli.js open --close";
+
+describe("withCostButton", () => {
+  it("seeds built-in buttons + ours and registers the action", () => {
+    const out = withCostButton({}, BTN_CMD);
+    const buttons = (out.ui as any).surfaceTabBar.buttons as any[];
+    expect(buttons.slice(0, 4)).toEqual([
+      "cmux.newTerminal",
+      "cmux.newBrowser",
+      "cmux.splitRight",
+      "cmux.splitDown",
+    ]);
+    expect(buttons[4]).toMatchObject({ action: "cmux-cost.report", title: "Cost" });
+    expect((out.actions as any)["cmux-cost.report"].command).toBe(BTN_CMD);
   });
 
-  it("keeps other controls", () => {
-    const dock = { controls: [{ id: "git", title: "Git", command: "lazygit" }] };
-    const out = withDockControl(dock, { id: "cost", title: "Cost", command: "x" });
-    expect((out.controls as any[]).map((c) => c.id)).toEqual(["git", "cost"]);
+  it("is idempotent and preserves user buttons", () => {
+    const seeded = { ui: { surfaceTabBar: { buttons: ["cmux.newTerminal", "my.button"] } } };
+    const once = withCostButton(seeded, BTN_CMD);
+    const twice = withCostButton(once, BTN_CMD);
+    const buttons = (twice.ui as any).surfaceTabBar.buttons as any[];
+    expect(buttons.filter((b) => isOurs(b))).toHaveLength(1);
+    expect(buttons).toContain("my.button");
   });
 });
 
-describe("withoutDockControl", () => {
-  it("removes the cost control only", () => {
-    const dock = {
-      controls: [
-        { id: "git", title: "Git", command: "lazygit" },
-        { id: "cost", title: "Cost", command: "x" },
-      ],
-    };
-    const out = withoutDockControl(dock);
-    expect((out.controls as any[]).map((c) => c.id)).toEqual(["git"]);
+describe("withoutCostButton", () => {
+  it("removes our action + button and drops a defaults-only override", () => {
+    const out = withoutCostButton(withCostButton({}, BTN_CMD));
+    expect((out.actions as any)?.["cmux-cost.report"]).toBeUndefined();
+    // buttons fell back to exactly the built-in defaults -> override removed entirely
+    expect((out.ui as any)?.surfaceTabBar?.buttons).toBeUndefined();
+  });
+
+  it("keeps user buttons when removing ours", () => {
+    const seeded = withCostButton(
+      { ui: { surfaceTabBar: { buttons: ["my.button"] } } },
+      BTN_CMD,
+    );
+    const out = withoutCostButton(seeded);
+    expect((out.ui as any).surfaceTabBar.buttons).toEqual(["my.button"]);
+  });
+});
+
+function isOurs(b: any): boolean {
+  return b === "cmux-cost.report" || (b && typeof b === "object" && b.action === "cmux-cost.report");
+}
+
+describe("stripJsonComments", () => {
+  it("removes // and /* */ comments but not // inside strings", () => {
+    const jsonc = `{
+  "$schema": "https://example.com/x", // trailing comment
+  /* block */ "a": 1
+}`;
+    const parsed = JSON.parse(stripJsonComments(jsonc));
+    expect(parsed).toEqual({ $schema: "https://example.com/x", a: 1 });
   });
 });

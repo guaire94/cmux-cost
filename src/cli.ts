@@ -4,23 +4,23 @@ import { windowTotals } from "./aggregate.js";
 import { loadViews } from "./app.js";
 import { pushWorkspaceBadges } from "./badges.js";
 import { scanClaudeDirs } from "./accounts.js";
+import { closeSurface } from "./cmux.js";
 import { loadConfig, saveConfig } from "./config.js";
 import { runAccountSetup } from "./setup.js";
-import { claudeSettingsPath, configPath, dockConfigPath } from "./paths.js";
+import { claudeSettingsPath, cmuxConfigPath, configPath } from "./paths.js";
 import {
-  installDock,
+  installCostButton,
   installHook,
-  uninstallDock,
+  uninstallCostButton,
   uninstallHook,
 } from "./install.js";
 import { renderSessionDetail, renderSessions, renderTotals } from "./render-text.js";
-import { runDock } from "./render-tui.js";
 import { runHook } from "./hook.js";
 import { openReport } from "./report.js";
 
 const VERSION = "0.1.0";
 
-/** Absolute command that re-invokes this CLI with a subcommand (for hooks/dock). */
+/** Absolute command that re-invokes this CLI with a subcommand (for the hook + button). */
 function selfCommand(sub: string): string {
   const script = fileURLToPath(import.meta.url);
   return `${quote(execPath)} ${quote(script)} ${sub}`;
@@ -58,13 +58,19 @@ async function main(argv: string[]): Promise<number> {
       await runHook(await readStdin());
       return 0;
     }
-    case "dock": {
-      await runDock();
+    case "open": {
+      // What the "💰" tab-bar button runs: refresh every workspace badge, then
+      // open the report. With --close (passed by the button) it also closes the
+      // throwaway terminal tab cmux spawned to run this.
+      const { cfg, views } = await loadViews();
+      pushWorkspaceBadges(views, cfg);
+      const path = await openReport();
+      process.stdout.write(`report: ${path}\n`);
+      if (rest.includes("--close")) closeSurface();
       return 0;
     }
     case "refresh": {
-      // Re-apply every workspace's cost badge (badges are wiped when cmux is
-      // killed). The dock control does this on launch; this is the manual hook.
+      // Re-apply every workspace's cost badge (badges are wiped when cmux is killed).
       const { cfg, views } = await loadViews();
       pushWorkspaceBadges(views, cfg);
       const n = new Set(views.filter((v) => v.workspace?.id).map((v) => v.workspace!.id)).size;
@@ -133,18 +139,17 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "install": {
-      const hookCmd = selfCommand("hook");
-      installHook(claudeSettingsPath(), hookCmd);
-      installDock(dockConfigPath(), selfCommand("dock"));
+      installHook(claudeSettingsPath(), selfCommand("hook"));
+      installCostButton(cmuxConfigPath(), `${selfCommand("open")} --close`);
       process.stdout.write(
-        `installed:\n  hook -> ${claudeSettingsPath()}\n  dock -> ${dockConfigPath()}\n`,
+        `installed:\n  hook -> ${claudeSettingsPath()}\n  💰 button -> ${cmuxConfigPath()}\nrun \`cmux reload-config\` to show the button.\n`,
       );
       return 0;
     }
     case "uninstall": {
       uninstallHook(claudeSettingsPath(), selfCommand("hook"));
-      uninstallDock(dockConfigPath());
-      process.stdout.write("uninstalled hook + dock control\n");
+      uninstallCostButton(cmuxConfigPath());
+      process.stdout.write("uninstalled hook + 💰 button (run `cmux reload-config`)\n");
       return 0;
     }
     case "version":
@@ -167,15 +172,15 @@ async function main(argv: string[]): Promise<number> {
 const HELP = `cmux-cost ${VERSION} — token cost for cmux
 
 Usage:
-  cmux-cost install        Register the Claude hook + add the dock control
+  cmux-cost install        Register the Claude hook + add the 💰 tab-bar button
   cmux-cost uninstall      Remove both
   cmux-cost accounts       Choose/label which Claude accounts to include
   cmux-cost report         Generate the HTML report and open it in cmux
-  cmux-cost dock           Run the dock summary TUI (used by the dock control)
   cmux-cost refresh        Re-apply all workspace cost badges (restore after a cmux restart)
   cmux-cost today          Print today / 7d / 30d / all-time totals
   cmux-cost sessions       Print a table of sessions
   cmux-cost session <id>   Print the per-teammate breakdown for one session
+  cmux-cost open           Internal — refresh badges + open report (the 💰 button)
   cmux-cost hook           Internal — invoked by the Claude Stop hook
   cmux-cost version
 `;

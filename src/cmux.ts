@@ -51,6 +51,14 @@ export function browserOpen(url: string, focus = true): boolean {
   return true;
 }
 
+/** `cmux close-surface` — closes the caller's surface (the throwaway tab a button spawned). */
+export function closeSurface(): boolean {
+  const bin = resolveCmuxBin();
+  if (!bin) return false;
+  run(bin, ["close-surface"]);
+  return true;
+}
+
 export function isAvailable(): boolean {
   return resolveCmuxBin() !== null;
 }

@@ -31,6 +31,6 @@ export function claudeSettingsPath(): string {
   return join(dir && dir.length > 0 ? dir : join(homedir(), ".claude"), "settings.json");
 }
 
-export function dockConfigPath(): string {
-  return join(homedir(), ".config", "cmux", "dock.json");
+export function cmuxConfigPath(): string {
+  return join(homedir(), ".config", "cmux", "cmux.json");
 }

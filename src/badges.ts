@@ -33,7 +33,7 @@ export function workspaceBadges(views: SessionView[], cfg: Config): WorkspaceBad
 /**
  * Best-effort: (re)apply every workspace's cost badge in cmux. Badges are
  * runtime state cmux drops when it is killed, so this is what makes costs show
- * up again as soon as cmux relaunches (the dock control calls it on startup).
+ * up again on demand (the 💰 tab-bar button and `cmux-cost refresh` call it).
  */
 export function pushWorkspaceBadges(views: SessionView[], cfg: Config): void {
   for (const b of workspaceBadges(views, cfg)) {
