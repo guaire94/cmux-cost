@@ -2,6 +2,7 @@ import { execPath } from "node:process";
 import { fileURLToPath } from "node:url";
 import { windowTotals } from "./aggregate.js";
 import { loadViews } from "./app.js";
+import { pushWorkspaceBadges } from "./badges.js";
 import { scanClaudeDirs } from "./accounts.js";
 import { loadConfig, saveConfig } from "./config.js";
 import { runAccountSetup } from "./setup.js";
@@ -59,6 +60,15 @@ async function main(argv: string[]): Promise<number> {
     }
     case "dock": {
       await runDock();
+      return 0;
+    }
+    case "refresh": {
+      // Re-apply every workspace's cost badge (badges are wiped when cmux is
+      // killed). The dock control does this on launch; this is the manual hook.
+      const { cfg, views } = await loadViews();
+      pushWorkspaceBadges(views, cfg);
+      const n = new Set(views.filter((v) => v.workspace?.id).map((v) => v.workspace!.id)).size;
+      process.stdout.write(`refreshed ${n} workspace badge(s)\n`);
       return 0;
     }
     case "report": {
@@ -162,6 +172,7 @@ Usage:
   cmux-cost accounts       Choose/label which Claude accounts to include
   cmux-cost report         Generate the HTML report and open it in cmux
   cmux-cost dock           Run the dock summary TUI (used by the dock control)
+  cmux-cost refresh        Re-apply all workspace cost badges (restore after a cmux restart)
   cmux-cost today          Print today / 7d / 30d / all-time totals
   cmux-cost sessions       Print a table of sessions
   cmux-cost session <id>   Print the per-teammate breakdown for one session
