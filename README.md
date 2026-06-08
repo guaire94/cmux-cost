@@ -8,8 +8,11 @@ prices them from the OpenRouter model table, and shows cost in three places:
 
 - **Live badge per workspace** — `$2.75 · 1.2M` on the cmux workspace running
   Claude, updated on every turn via a `Stop` hook. Colour-coded by budget.
+  cmux drops these badges when it is killed, so the dock control re-applies them
+  on launch (and `cmux-cost refresh` restores them on demand).
 - **Dock control "💰 Cost"** — a compact live summary in the cmux right sidebar
-  that also launches the full report (`o`).
+  that also launches the full report (`o`). Because cmux starts the dock command
+  as soon as it renders the sidebar, the costs reappear right after a restart.
 - **HTML report** — a self-contained dashboard opened in a cmux browser pane:
   today / 7d / 30d / all-time totals, a daily-spend chart, and a sessions table
   where each row expands to a **per-teammate (subagent) breakdown**.
