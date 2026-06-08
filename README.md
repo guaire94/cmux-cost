@@ -21,21 +21,41 @@ Plus on-demand CLI output: `today`, `sessions`, `session <id>`.
 
 ## Install
 
+Get the **exact same setup** — live badges + the 💰 tab-bar button — on a fresh
+machine with a clone and a few commands:
+
 ```sh
-npm install      # deps
-npm run build    # -> dist/cli.js
-node dist/cli.js install   # register the Claude hook + add the 💰 tab-bar button
+git clone https://github.com/guaire94/cmux-cost.git
+cd cmux-cost
+npm install && npm run build     # -> dist/cli.js
+npm link                         # puts `cmux-cost` on your PATH (optional but recommended)
+
+cmux-cost accounts               # pick & label your Claude accounts (see note below)
+cmux-cost install                # write the hook into every account + add the 💰 button
+cmux reload-config               # make cmux show the button
 ```
 
-`install` is idempotent and backs up every file it touches
-(`<file>.bak-<timestamp>`). It writes:
+(No `npm link`? Just run `node dist/cli.js <cmd>` instead of `cmux-cost <cmd>`.)
 
-- the `Stop`/`SubagentStop` hook into your Claude `settings.json`
-  (honours `CLAUDE_CONFIG_DIR`), and
+### What `install` writes
+
+It is idempotent and backs up every file it touches (`<file>.bak-<timestamp>`):
+
+- the `Stop`/`SubagentStop` hook into the `settings.json` of **every Claude
+  account the report tracks** — i.e. each config dir under `~/.claude*` /
+  `~/.config/claude` that has a `projects/` folder, or just the accounts you
+  enabled via `cmux-cost accounts`. A hook only fires for the config dir it lives
+  in, so an account without it records nothing and its sessions show as
+  "unknown workspace" — installing into all of them is what makes the per-workspace
+  badges work across every account. (If no account dir is found yet it falls back
+  to `CLAUDE_CONFIG_DIR`, else `~/.claude`.)
 - the `cmux-cost.report` action + 💰 surface-tab-bar button into
   `~/.config/cmux/cmux.json` (preserving the built-in buttons).
 
-Then `cmux reload-config` to show the button.
+The hook command is an absolute path to *this clone's* `dist/cli.js`, computed
+automatically — colleagues don't edit anything by hand. **Re-run `cmux-cost
+install` whenever you add a new Claude account** (or move/rebuild the clone) so
+the new dir gets the hook too.
 
 ## Usage
 
@@ -74,8 +94,10 @@ cmux-cost uninstall       # remove the hook + 💰 button
   and the session's cmux **tab title** (`CMUX_SURFACE_ID` → title via
   `cmux list-pane-surfaces`, e.g. "Refactor cost report") into
   `~/.cache/cmux-cost/workspaces.json`. Both are captured going forward; sessions
-  that ran before appear under "unknown workspace" and fall back to a short
-  `id · project` name.
+  that ran before (or that ran in an account whose `settings.json` has no hook —
+  see [Install](#install)) appear under "unknown workspace" and fall back to a
+  short `id · project` name. If a whole account is stuck on "unknown workspace",
+  re-run `cmux-cost install` and start a fresh session there.
 - The HTML report is **account-first**: four global totals (today / 7d / 30d /
   all-time) sit on top, then a tab per Claude account. Selecting an account shows
   only its data — cost-by-teammate, daily spend, and a collapsible
