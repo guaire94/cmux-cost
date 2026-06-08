@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { deriveLabel, resolveAccounts, scanClaudeDirs } from "./accounts.js";
+import {
+  accountSettingsPaths,
+  deriveLabel,
+  resolveAccounts,
+  scanClaudeDirs,
+} from "./accounts.js";
 import { DEFAULT_CONFIG } from "./config.js";
 
 function makeHome(): string {
@@ -63,5 +68,36 @@ describe("resolveAccounts", () => {
     addAccount(home, ".claude-talabat", 2);
     const accounts = resolveAccounts({ ...DEFAULT_CONFIG }, home);
     expect(accounts).toEqual([{ dir: join(home, ".claude-talabat"), label: "Talabat" }]);
+  });
+});
+
+describe("accountSettingsPaths", () => {
+  it("returns settings.json for every tracked account dir, not just one", () => {
+    const home = makeHome();
+    addAccount(home, ".claude-personal", 1);
+    addAccount(home, ".claude-talabat", 2);
+    const paths = accountSettingsPaths({ ...DEFAULT_CONFIG }, home).sort();
+    expect(paths).toEqual(
+      [
+        join(home, ".claude-personal", "settings.json"),
+        join(home, ".claude-talabat", "settings.json"),
+      ].sort(),
+    );
+  });
+
+  it("follows enabled configured accounts when present", () => {
+    const home = makeHome();
+    addAccount(home, ".claude-personal", 1);
+    const paths = accountSettingsPaths(
+      {
+        ...DEFAULT_CONFIG,
+        accounts: [
+          { dir: "/h/.claude-talabat", label: "Talabat", enabled: true },
+          { dir: "/h/.claude", label: "Default", enabled: false },
+        ],
+      },
+      home,
+    );
+    expect(paths).toEqual([join("/h/.claude-talabat", "settings.json")]);
   });
 });

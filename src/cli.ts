@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { windowTotals } from "./aggregate.js";
 import { loadViews } from "./app.js";
 import { pushWorkspaceBadges } from "./badges.js";
-import { scanClaudeDirs } from "./accounts.js";
+import { accountSettingsPaths, scanClaudeDirs } from "./accounts.js";
 import { closeSurface } from "./cmux.js";
 import { loadConfig, saveConfig } from "./config.js";
 import { runAccountSetup } from "./setup.js";
@@ -27,6 +27,14 @@ function selfCommand(sub: string): string {
 }
 function quote(s: string): string {
   return /[\s"']/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s;
+}
+
+/** Every Claude settings.json the hook should live in (one per tracked account). */
+function hookTargets(): string[] {
+  const targets = accountSettingsPaths(loadConfig());
+  // No account dirs discovered yet (fresh machine): fall back to the single
+  // default settings file so `install` still does something useful.
+  return targets.length > 0 ? targets : [claudeSettingsPath()];
 }
 
 /** On first run, offer interactive account setup (TTY only). */
@@ -139,15 +147,22 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "install": {
-      installHook(claudeSettingsPath(), selfCommand("hook"));
+      const command = selfCommand("hook");
+      // Install into every tracked account's settings.json — the hook only fires
+      // for the config dir it lives in, so one account's hook never records
+      // another account's sessions (they'd show as "unknown workspace").
+      const targets = hookTargets();
+      for (const p of targets) installHook(p, command);
       installCostButton(cmuxConfigPath(), `${selfCommand("open")} --close`);
+      const hookLines = targets.map((p) => `  hook -> ${p}`).join("\n");
       process.stdout.write(
-        `installed:\n  hook -> ${claudeSettingsPath()}\n  💰 button -> ${cmuxConfigPath()}\nrun \`cmux reload-config\` to show the button.\n`,
+        `installed:\n${hookLines}\n  💰 button -> ${cmuxConfigPath()}\nrun \`cmux reload-config\` to show the button.\n`,
       );
       return 0;
     }
     case "uninstall": {
-      uninstallHook(claudeSettingsPath(), selfCommand("hook"));
+      const command = selfCommand("hook");
+      for (const p of hookTargets()) uninstallHook(p, command);
       uninstallCostButton(cmuxConfigPath());
       process.stdout.write("uninstalled hook + 💰 button (run `cmux reload-config`)\n");
       return 0;

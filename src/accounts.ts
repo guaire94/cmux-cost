@@ -49,6 +49,16 @@ export function resolveAccounts(cfg: Config, home: string = homedir()): Account[
   return scanClaudeDirs(home).map((s) => ({ dir: s.dir, label: s.label }));
 }
 
+/**
+ * The `settings.json` path for every account the report reads from. The Stop
+ * hook must be installed into *each* Claude config dir whose sessions we track —
+ * a hook in one account's dir never fires for another account, so any account
+ * without it records no workspace mapping (sessions show as "unknown workspace").
+ */
+export function accountSettingsPaths(cfg: Config, home: string = homedir()): string[] {
+  return resolveAccounts(cfg, home).map((a) => join(a.dir, "settings.json"));
+}
+
 function countJsonl(projectsDir: string): number {
   let n = 0;
   for (const project of safeReaddir(projectsDir)) {
