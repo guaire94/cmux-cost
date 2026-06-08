@@ -51,7 +51,8 @@ export async function runHook(stdinText: string): Promise<void> {
     const sessionId = payload.transcript_path
       ? basename(payload.transcript_path).replace(/\.jsonl$/, "")
       : payload.session_id;
-    if (sessionId) recordWorkspace(sessionId, workspace, Date.now());
+    const surface = process.env.CMUX_SURFACE_ID?.trim();
+    if (sessionId) recordWorkspace(sessionId, workspace, Date.now(), surface);
   } catch (err) {
     log(`error: ${String(err)}`);
   }
