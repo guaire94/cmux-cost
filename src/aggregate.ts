@@ -175,7 +175,7 @@ export function prettyModel(raw: string): string {
 export interface TreeNode {
   key: string;
   label: string;
-  level: "account" | "workspace" | "session" | "teammate";
+  level: "account" | "workspace" | "session" | "teammate" | "model";
   cost: CostResult;
   lastActivity: number;
   children: TreeNode[];
@@ -276,26 +276,43 @@ function workspaceNodes(accountLabel: string, views: SessionView[]): TreeNode[] 
   return nodes.sort(byCostDesc);
 }
 
+function modelNodes(
+  models: ModelCost[] | undefined,
+  lastActivity: number,
+  parentKey: string,
+): TreeNode[] {
+  return (models ?? []).map((m) => ({
+    key: `${parentKey}:md:${m.model}`,
+    label: m.display,
+    level: "model" as const,
+    cost: m.cost,
+    lastActivity,
+    children: [],
+  }));
+}
+
 function sessionNode(v: SessionView): TreeNode {
+  const leadKey = `tm:${v.id}:lead`;
   const mates: TreeNode[] = [
     {
-      key: `tm:${v.id}:lead`,
+      key: leadKey,
       label: "lead",
       level: "teammate",
       cost: v.mainCost,
       lastActivity: v.lastActivity,
-      children: [],
+      children: modelNodes(v.mainModels, v.lastActivity, leadKey),
     },
-    ...v.teammates.map(
-      (t): TreeNode => ({
-        key: `tm:${v.id}:${t.id}`,
+    ...v.teammates.map((t): TreeNode => {
+      const key = `tm:${v.id}:${t.id}`;
+      return {
+        key,
         label: t.name ?? t.label,
         level: "teammate",
         cost: t.cost,
         lastActivity: v.lastActivity,
-        children: [],
-      }),
-    ),
+        children: modelNodes(t.models, v.lastActivity, key),
+      };
+    }),
   ];
   mates.sort(byCostDesc);
   // Prefer the cmux tab title (the name the user gave the session); fall back to

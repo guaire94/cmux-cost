@@ -327,6 +327,40 @@ describe("buildTree", () => {
   });
 });
 
+describe("model nodes in the tree", () => {
+  const tala: Account = { dir: "/h/.claude-talabat", label: "Talabat" };
+  const ws: Workspace = { id: "W1", title: "WS" };
+
+  it("adds level:'model' leaves under the lead and each teammate", () => {
+    const mc = (model: string, c: number): import("./aggregate.js").ModelCost => ({
+      model,
+      display: model,
+      cost: cost(c),
+    });
+    const v: SessionView = {
+      ...mkView("s1", tala, ws, 10),
+      mainModels: [mc("claude-opus-4-8", 6)],
+      teammates: [
+        {
+          id: "t",
+          name: "dev",
+          label: "dev",
+          cost: cost(4),
+          models: [mc("claude-opus-4-8", 3), mc("claude-haiku", 1)],
+        },
+      ],
+    };
+    const tree = buildTree([v]);
+    const sessionNode = tree[0]!.children[0]!.children[0]!;
+    const lead = sessionNode.children.find((n) => n.label === "lead")!;
+    expect(lead.children.map((n) => [n.level, n.label])).toEqual([["model", "claude-opus-4-8"]]);
+    const dev = sessionNode.children.find((n) => n.label === "dev")!;
+    expect(dev.children.map((n) => n.level)).toEqual(["model", "model"]);
+    // sorted by the ModelCost order they were given (already cost-desc)
+    expect(dev.children.map((n) => n.label)).toEqual(["claude-opus-4-8", "claude-haiku"]);
+  });
+});
+
 describe("buildAccountSections", () => {
   const perso: Account = { dir: "/h/.claude-personal", label: "Personal" };
   const tala: Account = { dir: "/h/.claude-talabat", label: "Talabat" };
