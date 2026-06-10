@@ -8,6 +8,7 @@ export interface TeammateView {
   name?: string;
   label: string;
   cost: CostResult;
+  models?: ModelCost[];
 }
 
 export interface ModelCost {
@@ -27,6 +28,7 @@ export interface SessionView {
   cost: CostResult; // main + teammates
   mainCost: CostResult; // the lead/orchestrator transcript alone
   teammates: TeammateView[];
+  mainModels?: ModelCost[];
 }
 
 export interface TeammateTotal {
@@ -55,6 +57,7 @@ export function buildSessionView(session: Session, prices: PriceTable): SessionV
       name: t.name,
       label: t.label ?? t.id,
       cost: costByModel(t.byModel, prices),
+      models: modelCosts(t.byModel, prices),
     }))
     .sort((a, b) => b.cost.cost - a.cost.cost);
   const allUsage = mergeByModel([
@@ -68,6 +71,7 @@ export function buildSessionView(session: Session, prices: PriceTable): SessionV
     lastActivity: session.lastActivity,
     cost: costByModel(allUsage, prices),
     mainCost: costByModel(session.main.byModel, prices),
+    mainModels: modelCosts(session.main.byModel, prices),
     teammates,
   };
 }

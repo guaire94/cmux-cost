@@ -84,6 +84,37 @@ describe("buildSessionView", () => {
     expect(v.teammates.map((t) => t.name)).toEqual(["big-dev", "small-dev"]);
     expect(v.project).toBe("me/proj");
   });
+
+  it("exposes per-model costs for the lead and each teammate", () => {
+    const s = session({
+      main: {
+        id: "s1",
+        path: "/x/s1.jsonl",
+        byModel: new Map([["claude-sonnet-4-6", usage({ input: 1000 })]]),
+      },
+      teammates: [
+        {
+          id: "t",
+          path: "/x/s1/subagents/agent-t.jsonl",
+          name: "dev",
+          label: "dev — t",
+          byModel: new Map([
+            ["claude-sonnet-4-6", usage({ output: 100 })],
+            ["claude-sonnet-4-6-x", usage({ output: 50 })],
+          ]),
+        },
+      ],
+    });
+    const v = buildSessionView(s, prices);
+    expect(v.mainModels?.map((m) => m.model)).toEqual(["claude-sonnet-4-6"]);
+    expect(v.teammates[0]!.models?.map((m) => m.model)).toEqual([
+      "claude-sonnet-4-6",
+      "claude-sonnet-4-6-x",
+    ]);
+    // per-model costs sum to the teammate aggregate
+    const sum = v.teammates[0]!.models!.reduce((n, m) => n + m.cost.cost, 0);
+    expect(sum).toBeCloseTo(v.teammates[0]!.cost.cost, 9);
+  });
 });
 
 describe("teammateLeaderboard", () => {
