@@ -113,7 +113,7 @@ function accountPanel(
 ): string {
   const board = a.leaderboard.length
     ? leaderboard(a.leaderboard.slice(0, 14), currency)
-    : `<div class="empty small">No named teammates.</div>`;
+    : `<div class="empty small">No agents.</div>`;
 
   const treeHtml = a.tree.children.length
     ? a.tree.children.map((n) => treeNode(n, currency, now)).join("")
@@ -122,7 +122,7 @@ function accountPanel(
   const tmCount = a.leaderboard.length;
   const meta = [
     `${a.sessions} session${a.sessions === 1 ? "" : "s"}`,
-    tmCount ? `${tmCount} teammate${tmCount === 1 ? "" : "s"}` : null,
+    tmCount ? `${tmCount} agent${tmCount === 1 ? "" : "s"}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -131,7 +131,7 @@ function accountPanel(
   <div class="acc-head"><strong>${esc(a.label)}</strong> · <span data-acc-meta>${esc(meta)}</span></div>
   <div class="acc-cols">
     <div class="col">
-      <h3>Cost by teammate</h3>
+      <h3>Cost by agent</h3>
       <div data-board>${board}</div>
     </div>
     <div class="col">
@@ -140,7 +140,7 @@ function accountPanel(
     </div>
   </div>
   <div class="breakdown">
-    <h3>Breakdown <span class="hint">— workspace → session → teammate; click to expand</span></h3>
+    <h3>Breakdown <span class="hint">— workspace → session → agent; click to expand</span></h3>
     ${filterBar(a)}
     <div class="tree">${treeHtml}</div>
   </div>
@@ -152,7 +152,7 @@ function leaderboard(items: TeammateTotal[], currency: string): string {
   return `<div class="board-list">${items
     .map((t) => {
       const pct = (t.cost.cost / max) * 100;
-      const sub = t.sessions > 1 ? ` <span class="dim">×${t.sessions}</span>` : "";
+      const sub = t.count > 1 ? ` <span class="dim">×${t.count}</span>` : "";
       return `<div class="bk">
         <div class="bk-label"><span class="bk-name">${esc(t.name)}</span>${sub}</div>
         <div class="bk-bar"><span style="width:${pct.toFixed(1)}%"></span></div>
@@ -384,26 +384,26 @@ const JS = `
   }
   function inRange(s, r){ return s.date>=r[0] && s.date<r[1]; }
 
-  // ---- leaderboard (named teammates) ----
+  // ---- leaderboard (cost by agent type) ----
   function renderBoard(panel, rows){
     var map = {};
     rows.forEach(function(s){
       (s.teammates||[]).forEach(function(t){
-        if(!t.name) return;
-        var e = map[t.name] || (map[t.name]={cost:0,tokens:0,partial:false,ses:{}});
-        e.cost += t.cost; e.tokens += t.tokens; if(t.partial) e.partial=true; e.ses[s.id]=1;
+        if(!t.agentType) return;
+        var e = map[t.agentType] || (map[t.agentType]={cost:0,tokens:0,partial:false,count:0});
+        e.cost += t.cost; e.tokens += t.tokens; if(t.partial) e.partial=true; e.count += 1;
       });
     });
     var items = Object.keys(map).map(function(n){
-      var e=map[n]; return {name:n, cost:e.cost, tokens:e.tokens, partial:e.partial, sessions:Object.keys(e.ses).length};
+      var e=map[n]; return {name:n, cost:e.cost, tokens:e.tokens, partial:e.partial, count:e.count};
     }).sort(function(a,b){ return b.cost-a.cost; }).slice(0,14);
     var wrap = panel.querySelector('[data-board]');
     if(!wrap) return;
-    if(!items.length){ wrap.innerHTML = '<div class="empty small">No named teammates.</div>'; return; }
+    if(!items.length){ wrap.innerHTML = '<div class="empty small">No agents.</div>'; return; }
     var max = 0.0001; items.forEach(function(t){ if(t.cost>max) max=t.cost; });
     wrap.innerHTML = '<div class="board-list">'+items.map(function(t){
       var pct = (t.cost/max)*100;
-      var sub = t.sessions>1 ? ' <span class="dim">×'+t.sessions+'</span>' : '';
+      var sub = t.count>1 ? ' <span class="dim">×'+t.count+'</span>' : '';
       return '<div class="bk"><div class="bk-label"><span class="bk-name">'+esc(t.name)+'</span>'+sub+'</div>'+
         '<div class="bk-bar"><span style="width:'+pct.toFixed(1)+'%"></span></div>'+
         '<div class="bk-num">'+esc(fmtCost(t.cost,t.partial))+'</div>'+
@@ -528,14 +528,14 @@ const JS = `
         var totEl = tab.querySelector('[data-acc-total]');
         if(totEl) totEl.textContent = fmtCost(total, partial);
       });
-      // acc-head meta reflects the range: in-range session + named-teammate counts
-      var tmNames = {};
-      rows.forEach(function(s){ (s.teammates||[]).forEach(function(t){ if(t.name) tmNames[t.name]=1; }); });
+      // acc-head meta reflects the range: in-range session + distinct agent-type counts
+      var tmTypes = {};
+      rows.forEach(function(s){ (s.teammates||[]).forEach(function(t){ if(t.agentType) tmTypes[t.agentType]=1; }); });
       var metaEl = panel.querySelector('[data-acc-meta]');
       if(metaEl){
-        var nS = rows.length, nT = Object.keys(tmNames).length;
+        var nS = rows.length, nT = Object.keys(tmTypes).length;
         var parts = [nS+' session'+(nS===1?'':'s')];
-        if(nT) parts.push(nT+' teammate'+(nT===1?'':'s'));
+        if(nT) parts.push(nT+' agent'+(nT===1?'':'s'));
         metaEl.textContent = parts.join(' · ');
       }
       renderBoard(panel, rows);

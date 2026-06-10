@@ -24,8 +24,14 @@ const defaultSessions: SessionView[] = [
     cost: c(2.5, 1_200_000),
     mainCost: c(1.4, 700_000),
     teammates: [
-      { id: "agent-1", name: "auth-dev", label: "auth-dev — Selling x", cost: c(1.1, 500_000) },
-      { id: "agent-2", label: "Selling <b>x</b>", cost: c(0.2, 50_000) }, // unnamed -> shown in tree
+      {
+        id: "agent-1",
+        name: "auth-dev",
+        agentType: "business-dev",
+        label: "[auth-dev] (business-dev) Selling x",
+        cost: c(1.1, 500_000),
+      },
+      { id: "agent-2", label: "Selling <b>x</b>", cost: c(0.2, 50_000) }, // no type -> shown in tree, off the board
     ],
   },
 ];
@@ -66,10 +72,11 @@ describe("renderHtml", () => {
     expect(html).not.toContain('data-account="Talabat"'); // accounts are tabs, not tree nodes
   });
 
-  it("renders the teammate leaderboard and the lead node", () => {
+  it("renders the by-agent-type leaderboard, the [handle] (type) tree row, and the lead node", () => {
     const html = renderHtml(data());
-    expect(html).toContain("Cost by teammate");
-    expect(html).toContain("auth-dev");
+    expect(html).toContain("Cost by agent");
+    expect(html).toContain("business-dev"); // leaderboard groups by agent type
+    expect(html).toContain("[auth-dev] (business-dev) Selling x"); // tree row label
     expect(html).toContain("lead"); // the orchestrator teammate node
   });
 

@@ -4,8 +4,10 @@ import type { Account, CostResult, Session, Usage, Workspace } from "./types.js"
 
 export interface TeammateView {
   id: string;
-  /** teammate's own name when known (e.g. "data-dev"), else undefined */
+  /** teammate's handle when known (e.g. "dbg-auth"), else undefined */
   name?: string;
+  /** teammate's role/type (e.g. "debugger") — the key for the by-agent global view */
+  agentType?: string;
   label: string;
   cost: CostResult;
   models?: ModelCost[];
@@ -32,9 +34,11 @@ export interface SessionView {
 }
 
 export interface TeammateTotal {
+  /** the agent role/type, e.g. "debugger" */
   name: string;
   cost: CostResult;
-  sessions: number;
+  /** number of agent instances of this type summed into the row */
+  count: number;
 }
 
 export interface WindowTotals {
@@ -55,6 +59,7 @@ export function buildSessionView(session: Session, prices: PriceTable): SessionV
     .map((t) => ({
       id: t.id,
       name: t.name,
+      agentType: t.agentType,
       label: t.label ?? t.id,
       cost: costByModel(t.byModel, prices),
       models: modelCosts(t.byModel, prices),
@@ -88,25 +93,26 @@ export function modelCosts(byModel: Map<string, Usage>, prices: PriceTable): Mod
 }
 
 /**
- * Aggregate cost by teammate name across all sessions, highest-cost first.
- * Only named teammates (cmux team members) are included — one-off Explore /
- * workflow subagents are left to their per-session breakdown to keep this list
- * a clean "team members ranked by cost". Recurring names are summed.
+ * Aggregate cost by agent *type* (role) across all sessions, highest-cost
+ * first — the global "where does my agent spend go" view. Every instance of a
+ * role is summed (e.g. dbg-auth + dbg-cart → "debugger ×2"), and `count` is the
+ * number of instances rolled up. Teammates with no known type (legacy one-offs
+ * with no meta sidecar) are left to the per-session breakdown.
  */
 export function teammateLeaderboard(views: SessionView[]): TeammateTotal[] {
-  const map = new Map<string, { cost: CostResult; sessions: Set<string> }>();
+  const map = new Map<string, { cost: CostResult; count: number }>();
   for (const v of views) {
     for (const t of v.teammates) {
-      if (!t.name) continue;
-      const key = t.name;
-      const entry = map.get(key) ?? { cost: zeroCost(), sessions: new Set<string>() };
+      if (!t.agentType) continue;
+      const key = t.agentType;
+      const entry = map.get(key) ?? { cost: zeroCost(), count: 0 };
       entry.cost = addCost(entry.cost, t.cost);
-      entry.sessions.add(v.id);
+      entry.count += 1;
       map.set(key, entry);
     }
   }
   return [...map.entries()]
-    .map(([name, e]) => ({ name, cost: e.cost, sessions: e.sessions.size }))
+    .map(([name, e]) => ({ name, cost: e.cost, count: e.count }))
     .sort((a, b) => b.cost.cost - a.cost.cost);
 }
 
@@ -194,7 +200,8 @@ export interface FlatSession {
 
 /** A teammate's cost summary inside an embedded ReportSession. */
 export interface ReportTeammate {
-  name: string | null; // null for one-off / unnamed teammates
+  /** agent role/type, null for one-off teammates with no meta sidecar — the by-agent grouping key */
+  agentType: string | null;
   cost: number;
   tokens: number;
   partial: boolean;
@@ -228,7 +235,7 @@ export function buildReportSessions(views: SessionView[]): ReportSession[] {
     tokens: v.cost.tokens,
     partial: v.cost.partial,
     teammates: v.teammates.map((t) => ({
-      name: t.name ?? null,
+      agentType: t.agentType ?? null,
       cost: t.cost.cost,
       tokens: t.cost.tokens,
       partial: t.cost.partial,
@@ -350,7 +357,7 @@ function sessionNode(v: SessionView): TreeNode {
       const key = `tm:${v.id}:${t.id}`;
       return {
         key,
-        label: t.name ?? t.label,
+        label: t.label,
         level: "teammate",
         cost: t.cost,
         lastActivity: v.lastActivity,

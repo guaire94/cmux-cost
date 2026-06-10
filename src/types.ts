@@ -45,9 +45,11 @@ export interface Transcript {
   /** session id (main) or agent id (teammate) */
   id: string;
   path: string;
-  /** teammate's own name, when it self-introduces (e.g. "data-dev") */
+  /** teammate's handle, when known (e.g. "dbg-auth") — the Agent `name`/self-intro */
   name?: string;
-  /** human label — for teammates, "name — task" or the task alone */
+  /** teammate's role/type (e.g. "debugger") — the key for the by-agent global view */
+  agentType?: string;
+  /** human label — for teammates, "[handle] (type) task" or the task alone */
   label?: string;
   byModel: Map<string, Usage>;
 }

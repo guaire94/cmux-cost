@@ -40,7 +40,9 @@ function view(
     lastActivity: NOW - daysAgo * DAY,
     cost: c(cost, cost * 1000),
     mainCost: c(cost, cost * 1000),
-    teammates: [{ id: `${id}-a`, name: "dev", label: "dev", cost: c(cost, cost * 1000) }],
+    teammates: [
+      { id: `${id}-a`, name: "dev", agentType: "dev", label: "dev", cost: c(cost, cost * 1000) },
+    ],
   };
 }
 
@@ -136,9 +138,9 @@ describe("report date filter (DOM)", () => {
   it("recomputes the acc-head meta counts for the selected range", () => {
     const btn = doc.querySelector('.preset[data-preset="7"]') as HTMLButtonElement;
     btn.dispatchEvent(new doc.defaultView!.Event("click"));
-    // 2 of 3 sessions fall in the last 7 days; the single named teammate "dev"
+    // 2 of 3 sessions fall in the last 7 days; the single agent type "dev"
     const meta = doc.querySelector('[data-acc-panel="Perso"] [data-acc-meta]')!;
-    expect(meta.textContent).toBe("2 sessions · 1 teammate");
+    expect(meta.textContent).toBe("2 sessions · 1 agent");
   });
 });
 

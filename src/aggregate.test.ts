@@ -118,7 +118,7 @@ describe("buildSessionView", () => {
 });
 
 describe("teammateLeaderboard", () => {
-  it("aggregates by name across sessions and sorts by cost", () => {
+  it("aggregates by agent type across sessions, counting agent instances, sorted by cost", () => {
     const c = (cost: number): SessionView["cost"] => ({
       usage: emptyUsage(),
       tokens: 0,
@@ -126,26 +126,39 @@ describe("teammateLeaderboard", () => {
       partial: false,
       unknownModels: [],
     });
-    const view = (id: string, mates: Array<{ name: string; cost: number }>): SessionView => ({
+    const view = (
+      id: string,
+      mates: Array<{ name: string; agentType: string; cost: number }>,
+    ): SessionView => ({
       id,
       project: "p",
       account: ACC,
       lastActivity: 0,
       cost: c(0),
       mainCost: c(0),
-      teammates: mates.map((m) => ({ id: m.name, name: m.name, label: m.name, cost: c(m.cost) })),
+      teammates: mates.map((m) => ({
+        id: m.name,
+        name: m.name,
+        agentType: m.agentType,
+        label: m.name,
+        cost: c(m.cost),
+      })),
     });
     const board = teammateLeaderboard([
-      view("s1", [{ name: "auth-dev", cost: 2 }, { name: "home-dev", cost: 5 }]),
-      view("s2", [{ name: "auth-dev", cost: 3 }]),
+      view("s1", [
+        { name: "dbg-auth", agentType: "debugger", cost: 2 },
+        { name: "explo-a", agentType: "explorer", cost: 5 },
+      ]),
+      view("s2", [{ name: "dbg-cart", agentType: "debugger", cost: 3 }]),
     ]);
-    expect(board.map((b) => [b.name, b.cost.cost, b.sessions])).toEqual([
-      ["auth-dev", 5, 2],
-      ["home-dev", 5, 1],
+    // two debugger instances roll up to one row (cost summed, count 2)
+    expect(board.map((b) => [b.name, b.cost.cost, b.count])).toEqual([
+      ["debugger", 5, 2],
+      ["explorer", 5, 1],
     ]);
   });
 
-  it("excludes unnamed (one-off) teammates from the leaderboard", () => {
+  it("excludes teammates with no agent type from the leaderboard", () => {
     const c = (cost: number): SessionView["cost"] => ({
       usage: emptyUsage(),
       tokens: 0,
@@ -161,11 +174,11 @@ describe("teammateLeaderboard", () => {
       cost: c(0),
       mainCost: c(0),
       teammates: [
-        { id: "1", name: "auth-dev", label: "auth-dev — x", cost: c(4) },
-        { id: "2", label: "Some Explore scope", cost: c(9) }, // no name
+        { id: "1", name: "auth-dev", agentType: "business-dev", label: "[auth-dev] x", cost: c(4) },
+        { id: "2", label: "Some Explore scope", cost: c(9) }, // no agentType
       ],
     };
-    expect(teammateLeaderboard([v]).map((b) => b.name)).toEqual(["auth-dev"]);
+    expect(teammateLeaderboard([v]).map((b) => b.name)).toEqual(["business-dev"]);
   });
 });
 
@@ -359,6 +372,25 @@ describe("model nodes in the tree", () => {
     // sorted by the ModelCost order they were given (already cost-desc)
     expect(dev.children.map((n) => n.label)).toEqual(["claude-opus-4-8", "claude-haiku"]);
   });
+
+  it("labels a teammate node with its full '[handle] (type) task' label", () => {
+    const v: SessionView = {
+      ...mkView("s1", tala, ws, 10),
+      teammates: [
+        {
+          id: "t",
+          name: "dbg-auth",
+          agentType: "debugger",
+          label: "[dbg-auth] (debugger) Fix login race",
+          cost: cost(4),
+        },
+      ],
+    };
+    const sessionNode = buildTree([v])[0]!.children[0]!.children[0]!;
+    const labels = sessionNode.children.map((n) => n.label);
+    expect(labels).toContain("[dbg-auth] (debugger) Fix login race");
+    expect(labels).toContain("lead");
+  });
 });
 
 describe("buildAccountSections", () => {
@@ -373,7 +405,7 @@ describe("buildAccountSections", () => {
     c: number,
   ): SessionView => ({
     ...mkView(id, account, ws, c),
-    teammates: [{ id: `${id}-a`, name, label: name, cost: cost(c) }],
+    teammates: [{ id: `${id}-a`, name, agentType: name, label: name, cost: cost(c) }],
   });
 
   it("keeps each account self-contained, highest-cost account first", () => {

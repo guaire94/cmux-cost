@@ -1,8 +1,18 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { extractIdentity, parseFile } from "./parse.js";
+import { type AgentMeta, displayLabel, extractIdentity, parseAgentMeta, parseFile } from "./parse.js";
 import { readFileSync } from "node:fs";
 import type { Account, Session, Transcript } from "./types.js";
+
+/** Read and parse the `agent-<id>.meta.json` sidecar next to a teammate transcript. */
+function readAgentMeta(transcriptPath: string): AgentMeta {
+  const metaPath = transcriptPath.replace(/\.jsonl$/, ".meta.json");
+  try {
+    return parseAgentMeta(readFileSync(metaPath, "utf8"));
+  } catch {
+    return {};
+  }
+}
 
 /** List main session JSONL files across the given roots, with their project dir. */
 export function listSessionFiles(
@@ -62,15 +72,18 @@ export function loadSession(
       // ignore
     }
     const ident = extractIdentity(content);
-    const label =
-      ident.name && ident.task
-        ? `${ident.name} — ${ident.task}`
-        : ident.name ?? ident.task;
+    // The agent's identity now lives in the `agent-<id>.meta.json` sidecar
+    // (handle + role + task); fall back to anything the transcript body reveals.
+    const sidecar = readAgentMeta(p);
+    const handle = sidecar.handle ?? ident.name;
+    const type = sidecar.type;
+    const task = ident.task ?? sidecar.task;
     return {
       id: basename(p).replace(/^agent-/, "").replace(/\.jsonl$/, ""),
       path: p,
-      name: ident.name,
-      label,
+      name: handle,
+      agentType: type,
+      label: displayLabel(handle, type, task),
       byModel: parseFile(p),
     };
   });

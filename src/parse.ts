@@ -111,11 +111,68 @@ export function extractIdentity(content: string): Identity {
   return { name, task: task ?? fallback };
 }
 
-/** Combined display label, e.g. "data-dev — Build auth feature". */
+/** Combined display label, e.g. "[data-dev] Build auth feature". */
 export function extractLabel(content: string): string | undefined {
   const { name, task } = extractIdentity(content);
-  if (name && task) return `${name} — ${task}`.slice(0, 80);
-  return name ?? task;
+  return displayLabel(name, undefined, task);
+}
+
+/** A teammate's identity sourced from its `agent-<id>.meta.json` sidecar. */
+export interface AgentMeta {
+  /** the handle the orchestrator gave this teammate (the Agent `name`), e.g. "bdev-lotA" */
+  handle?: string;
+  /** the agent role/type (the Agent `subagent_type`), e.g. "debugger" — the global-view key */
+  type?: string;
+  /** the task summary (the Agent `description`), used as a task fallback */
+  task?: string;
+}
+
+/**
+ * Parse an `agent-<id>.meta.json` sidecar. cmux/Claude Code write the spawned
+ * agent's identity here — `name` (the handle), `agentType` (the role), and
+ * `description` (the task) — which is where the agent name now lives (teammates
+ * no longer self-introduce as "You are X on team Y" in the transcript body).
+ */
+export function parseAgentMeta(content: string): AgentMeta {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(content);
+  } catch {
+    return {};
+  }
+  if (!obj || typeof obj !== "object") return {};
+  const o = obj as { name?: unknown; agentType?: unknown; description?: unknown };
+  const str = (v: unknown): string | undefined => {
+    const s = typeof v === "string" ? v.trim() : "";
+    return s.length ? s : undefined;
+  };
+  const meta: AgentMeta = {};
+  const handle = str(o.name);
+  const type = str(o.agentType);
+  const task = str(o.description);
+  if (handle) meta.handle = handle;
+  if (type) meta.type = type;
+  if (task) meta.task = task;
+  return meta;
+}
+
+/**
+ * Build a teammate row label: `[handle] (type) task`. The agent is the handle
+ * when known, else the type; the `(type)` parenthetical is shown only when it
+ * adds information (i.e. differs from the handle). Any part may be missing.
+ */
+export function displayLabel(
+  handle?: string,
+  type?: string,
+  task?: string,
+): string | undefined {
+  const agent = handle ?? type;
+  let prefix: string | undefined;
+  if (agent) {
+    prefix = type && type !== agent ? `[${agent}] (${type})` : `[${agent}]`;
+  }
+  if (prefix && task) return `${prefix} ${task}`;
+  return prefix ?? task;
 }
 
 function clean(s: string): string {
