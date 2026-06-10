@@ -5,6 +5,7 @@ import {
   buildTree,
   dailySeries,
   flatSessions,
+  modelCosts,
   prettyModel,
   prettyProject,
   startOfLocalDay,
@@ -196,6 +197,39 @@ describe("prettyModel", () => {
   it("leaves ids without a date stamp untouched", () => {
     expect(prettyModel("claude-opus-4-8")).toBe("claude-opus-4-8");
     expect(prettyModel("<synthetic>")).toBe("<synthetic>");
+  });
+});
+
+describe("modelCosts", () => {
+  const pt = new PriceTable(
+    parseOpenRouterModels({
+      data: [
+        { id: "anthropic/claude-sonnet-4.6", pricing: { prompt: "0.000003", completion: "0.000015" } },
+      ],
+    }),
+  );
+
+  it("returns one priced entry per model, sorted by cost desc", () => {
+    const byModel = new Map<string, Usage>([
+      ["claude-sonnet-4-6", usage({ input: 1000 })], // 1000 * 3e-6 = 0.003
+      ["claude-sonnet-4-6-cheap", usage({ input: 1 })],
+    ]);
+    // distinct keys both normalize to the same priced model
+    const res = modelCosts(byModel, pt);
+    expect(res.map((m) => m.model)).toEqual(["claude-sonnet-4-6", "claude-sonnet-4-6-cheap"]);
+    expect(res[0]!.cost.cost).toBeGreaterThan(res[1]!.cost.cost);
+    expect(res[0]!.display).toBe("claude-sonnet-4-6");
+  });
+
+  it("marks an entry partial when its price is unknown", () => {
+    const res = modelCosts(new Map([["mystery-model", usage({ input: 5 })]]), pt);
+    expect(res).toHaveLength(1);
+    expect(res[0]!.cost.partial).toBe(true);
+    expect(res[0]!.cost.cost).toBe(0);
+  });
+
+  it("returns [] for an empty map", () => {
+    expect(modelCosts(new Map(), pt)).toEqual([]);
   });
 });
 
