@@ -128,7 +128,7 @@ function accountPanel(
     .join(" · ");
 
   return `<section class="acc-panel${active ? "" : " hidden"}" role="tabpanel" data-acc-panel="${esc(a.label)}">
-  <div class="acc-head"><strong>${esc(a.label)}</strong> · ${esc(meta)}</div>
+  <div class="acc-head"><strong>${esc(a.label)}</strong> · <span data-acc-meta>${esc(meta)}</span></div>
   <div class="acc-cols">
     <div class="col">
       <h3>Cost by teammate</h3>
@@ -254,6 +254,7 @@ h3 .hint{text-transform:none;letter-spacing:0;font-weight:400}
 .acc-tab-name{font-weight:600}
 .acc-tab-total{color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums}
 .acc-tab.active{border-color:var(--accent);background:#13251a}
+.acc-tab.hidden{display:none}
 .acc-tab.active .acc-tab-total{color:var(--fg)}
 .acc-panel{border:1px solid var(--line);border-radius:12px;padding:16px;background:#11151b}
 .acc-panel.hidden{display:none}
@@ -281,6 +282,7 @@ h3 .hint{text-transform:none;letter-spacing:0;font-weight:400}
 .fg-label{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.05em;margin-right:2px}
 .chip{display:inline-flex;align-items:center;gap:5px;background:#0d1117;border:1px solid var(--line);border-radius:14px;padding:3px 9px;font-size:12px;cursor:pointer}
 .chip input{margin:0}
+.chip.hidden{display:none}
 .search{margin-left:auto;background:#0d1117;border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:5px 9px;font:13px inherit}
 .tree{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px}
 .tnode-children{display:none;margin-left:18px;border-left:1px solid var(--line);padding-left:8px}
@@ -335,10 +337,30 @@ const JS = `
   var toEl = document.getElementById('flt-to');
 
   // ---- account tabs ----
-  function showAccount(label){
-    tabs.forEach(function(t){ t.classList.toggle('active', t.getAttribute('data-acc-tab') === label); });
-    panels.forEach(function(p){ p.classList.toggle('hidden', p.getAttribute('data-acc-panel') !== label); });
+  // Accounts with no sessions in the selected range drop out of the report (tab
+  // + panel hidden); the active account follows to the first one that still has
+  // data. 'available' is refreshed by recompute() on every range change.
+  var available = {};
+  var activeAcc = tabs.length ? tabs[0].getAttribute('data-acc-tab') : null;
+  function syncAccounts(){
+    if(!activeAcc || !available[activeAcc]){
+      activeAcc = null;
+      for(var i=0;i<tabs.length;i++){
+        var l = tabs[i].getAttribute('data-acc-tab');
+        if(available[l]){ activeAcc = l; break; }
+      }
+    }
+    tabs.forEach(function(t){
+      var l = t.getAttribute('data-acc-tab'), ok = !!available[l];
+      t.classList.toggle('hidden', !ok);
+      t.classList.toggle('active', ok && l===activeAcc);
+    });
+    panels.forEach(function(p){
+      var l = p.getAttribute('data-acc-panel');
+      p.classList.toggle('hidden', !(available[l] && l===activeAcc));
+    });
   }
+  function showAccount(label){ if(available[label]){ activeAcc = label; syncAccounts(); } }
   tabs.forEach(function(t){
     t.addEventListener('click', function(){ showAccount(t.getAttribute('data-acc-tab')); });
   });
@@ -422,15 +444,24 @@ const JS = `
       var el = panel.querySelector('input[data-filter="search"]');
       return (el && el.value ? el.value : '').toLowerCase();
     }
+    // workspace name -> its filter chip, so chips can follow the tree.
+    var chipFor = {};
+    panel.querySelectorAll('input[data-filter="workspace"]').forEach(function(cb){
+      var label = cb.closest('.chip');
+      if(label) chipFor[cb.value] = label;
+    });
     return function(){
       var r = range(), wss = checkedWs(), t = term();
       panel.querySelectorAll('.tnode.level-workspace').forEach(function(ws){
-        var wsOn = !!wss[ws.getAttribute('data-workspace')];
-        var anyVisible=false, sumC=0, sumT=0, anyP=false;
+        var wsName = ws.getAttribute('data-workspace');
+        var wsOn = !!wss[wsName];
+        var anyVisible=false, anyInRange=false, sumC=0, sumT=0, anyP=false;
         ws.querySelectorAll('.tnode.level-session').forEach(function(se){
           var label = (se.getAttribute('data-session')||'').toLowerCase();
           var date = +se.getAttribute('data-date');
-          var on = wsOn && (!t || label.indexOf(t)>=0) && date>=r[0] && date<r[1];
+          var inR = date>=r[0] && date<r[1];
+          if(inR) anyInRange=true;
+          var on = wsOn && (!t || label.indexOf(t)>=0) && inR;
           se.classList.toggle('hidden', !on);
           if(on){
             anyVisible=true;
@@ -446,6 +477,10 @@ const JS = `
           if(tEl) tEl.textContent = fmtTokens(sumT);
         }
         ws.classList.toggle('hidden', !anyVisible);
+        // A workspace with no sessions in the period is not selectable: hide its
+        // chip. Keyed on date only (not the checkbox) so unchecking never hides it.
+        var chip = chipFor[wsName];
+        if(chip) chip.classList.toggle('hidden', !anyInRange);
       });
     };
   }
@@ -481,9 +516,11 @@ const JS = `
     var byAcc = {};
     sel.forEach(function(s){ (byAcc[s.account] = byAcc[s.account] || []).push(s); });
 
+    available = {};
     panels.forEach(function(panel){
       var acc = panel.getAttribute('data-acc-panel');
       var rows = byAcc[acc] || [];
+      if(rows.length) available[acc] = true;
       var total=0, partial=false;
       rows.forEach(function(s){ total+=s.cost; if(s.partial) partial=true; });
       tabs.forEach(function(tab){
@@ -491,10 +528,21 @@ const JS = `
         var totEl = tab.querySelector('[data-acc-total]');
         if(totEl) totEl.textContent = fmtCost(total, partial);
       });
+      // acc-head meta reflects the range: in-range session + named-teammate counts
+      var tmNames = {};
+      rows.forEach(function(s){ (s.teammates||[]).forEach(function(t){ if(t.name) tmNames[t.name]=1; }); });
+      var metaEl = panel.querySelector('[data-acc-meta]');
+      if(metaEl){
+        var nS = rows.length, nT = Object.keys(tmNames).length;
+        var parts = [nS+' session'+(nS===1?'':'s')];
+        if(nT) parts.push(nT+' teammate'+(nT===1?'':'s'));
+        metaEl.textContent = parts.join(' · ');
+      }
       renderBoard(panel, rows);
       renderChart(panel, rows, r);
       panel.__applyTree();
     });
+    syncAccounts();
   }
 
   // presets
