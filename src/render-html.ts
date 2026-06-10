@@ -1,6 +1,7 @@
 import {
   type AccountSection,
   type DayPoint,
+  type ReportSession,
   type TeammateTotal,
   type TreeNode,
   type WindowTotals,
@@ -14,6 +15,8 @@ export interface ReportData {
   totals: WindowTotals;
   /** one self-contained section per Claude account, highest-cost first */
   accounts: AccountSection[];
+  /** flat per-session records the client recompute (date filter) runs on */
+  sessions: ReportSession[];
   warnings: string[];
 }
 
@@ -64,11 +67,26 @@ export function renderHtml(data: ReportData): string {
   <div class="generated">generated ${esc(new Date(data.generatedAt).toLocaleString())}</div>
 </header>
 ${warnHtml}
+<section class="daterange">
+  <span class="fg-label">Period</span>
+  <label class="dr-field">From <input type="date" id="flt-from" /></label>
+  <label class="dr-field">To <input type="date" id="flt-to" /></label>
+  <button class="preset" data-preset="7">7d</button>
+  <button class="preset" data-preset="30">30d</button>
+  <button class="preset" data-preset="all">All</button>
+  <span class="range-sum">
+    <strong id="sel-cost">—</strong>
+    <span class="dim" id="sel-tokens"></span>
+    <span class="dim" id="sel-sessions"></span>
+  </span>
+</section>
 <section class="global">
   <div class="global-label">All accounts</div>
   <div class="kpis">${kpiHtml}</div>
 </section>
 ${body}
+<script>window.__CUR=${jsonScript(currency)};</script>
+<script id="report-data" type="application/json">${jsonScript(data.sessions)}</script>
 <script>${JS}</script>
 </body>
 </html>`;
@@ -78,7 +96,7 @@ ${body}
 function accountTab(a: AccountSection, currency: string, active: boolean): string {
   return `<button class="acc-tab${active ? " active" : ""}" role="tab" data-acc-tab="${esc(a.label)}">
     <span class="acc-tab-name">${esc(a.label)}</span>
-    <span class="acc-tab-total">${esc(fmtCost(a.total, currency))}</span>
+    <span class="acc-tab-total" data-acc-total>${esc(fmtCost(a.total, currency))}</span>
   </button>`;
 }
 
@@ -110,11 +128,11 @@ function accountPanel(
   <div class="acc-cols">
     <div class="col">
       <h3>Cost by teammate</h3>
-      ${board}
+      <div data-board>${board}</div>
     </div>
     <div class="col">
       <h3>Daily spend</h3>
-      ${chart(a.series, currency)}
+      <div data-chart>${chart(a.series, currency)}</div>
     </div>
   </div>
   <div class="breakdown">
@@ -164,7 +182,9 @@ function treeNode(n: TreeNode, currency: string, now: number): string {
     n.level === "workspace"
       ? ` data-workspace="${esc(n.label)}"`
       : n.level === "session"
-        ? ` data-session="${esc(n.label)}"`
+        ? ` data-session="${esc(n.label)}" data-session-id="${esc(n.key.slice(3))}"` +
+          ` data-date="${n.lastActivity}" data-cost="${n.cost.cost}"` +
+          ` data-tokens="${n.cost.tokens}" data-partial="${n.cost.partial ? 1 : 0}"`
         : "";
   const kids = hasKids
     ? `<div class="tnode-children">${n.children
@@ -211,6 +231,14 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim)
 h3 .hint{text-transform:none;letter-spacing:0;font-weight:400}
 .generated{color:var(--dim);font-size:12px}
 .warn{background:#3d2d00;border:1px solid #6b5200;color:#f0d98a;padding:8px 12px;border-radius:8px;margin-bottom:16px;font-size:13px}
+.daterange{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:16px}
+.dr-field{color:var(--dim);font-size:12px;display:inline-flex;align-items:center;gap:6px}
+.daterange input[type=date]{background:#0d1117;border:1px solid var(--line);border-radius:7px;color:var(--fg);padding:4px 8px;font:13px inherit;color-scheme:dark}
+.preset{background:#0d1117;border:1px solid var(--line);border-radius:14px;color:var(--fg);padding:4px 11px;font:12px inherit;cursor:pointer}
+.preset:hover{border-color:var(--dim)}
+.preset.active{border-color:var(--accent);background:#13251a}
+.range-sum{margin-left:auto;font-variant-numeric:tabular-nums;display:inline-flex;gap:8px;align-items:baseline}
+.range-sum strong{font-size:16px}
 .global{margin-bottom:20px}
 .global-label{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
@@ -267,9 +295,42 @@ h3 .hint{text-transform:none;letter-spacing:0;font-weight:400}
 
 const JS = `
 (function(){
+  var CUR = window.__CUR || 'USD';
+  var DATA = [];
+  try { DATA = JSON.parse(document.getElementById('report-data').textContent || '[]'); } catch(e){}
+
+  var DAY = 86400000;
+  function fmtUsd(n){
+    if(n===null) return '—';
+    var sym = CUR==='USD' ? '$' : '';
+    var suf = CUR==='USD' ? '' : ' '+CUR;
+    var d = n<1 ? 4 : 2;
+    return sym+n.toFixed(d)+suf;
+  }
+  function fmtCost(cost, partial){
+    if(partial && cost===0) return '—';
+    return fmtUsd(cost)+(partial?'+':'');
+  }
+  function fmtTokens(n){
+    if(n<1000) return ''+n;
+    if(n<1000000) return (n/1000).toFixed(1)+'k';
+    return (n/1000000).toFixed(1)+'M';
+  }
+  function esc(s){
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function startOfDay(ms){ var d=new Date(ms); d.setHours(0,0,0,0); return d.getTime(); }
+  function isoToMs(s){ var p=s.split('-'); return new Date(+p[0], +p[1]-1, +p[2]).getTime(); }
+  function pad2(x){ return (''+x).length<2 ? '0'+x : ''+x; }
+  function msToIso(ms){ var d=new Date(ms); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+
   var tabs = document.querySelectorAll('[data-acc-tab]');
   var panels = document.querySelectorAll('[data-acc-panel]');
+  var fromEl = document.getElementById('flt-from');
+  var toEl = document.getElementById('flt-to');
 
+  // ---- account tabs ----
   function showAccount(label){
     tabs.forEach(function(t){ t.classList.toggle('active', t.getAttribute('data-acc-tab') === label); });
     panels.forEach(function(p){ p.classList.toggle('hidden', p.getAttribute('data-acc-panel') !== label); });
@@ -278,47 +339,169 @@ const JS = `
     t.addEventListener('click', function(){ showAccount(t.getAttribute('data-acc-tab')); });
   });
 
+  // ---- tree expand ----
   document.querySelectorAll('.tnode-row.expandable').forEach(function(row){
     row.addEventListener('click', function(){ row.parentElement.classList.toggle('open'); });
   });
 
-  // Each account panel filters its own tree — no cross-account state.
-  panels.forEach(function(panel){
+  // ---- selected date range ----
+  var nowMs = Date.now();
+  var minDate = DATA.length ? DATA.reduce(function(m,s){ return Math.min(m, s.date||nowMs); }, nowMs) : nowMs;
+  function setRange(fromMs, toMs){ fromEl.value = msToIso(fromMs); toEl.value = msToIso(toMs); }
+  // default view: last 30 days (clamped to first session)
+  setRange(Math.max(startOfDay(nowMs)-29*DAY, startOfDay(minDate)), nowMs);
+
+  function range(){
+    var f = fromEl.value ? isoToMs(fromEl.value) : 0;
+    var t = toEl.value ? isoToMs(toEl.value)+DAY : Infinity; // end-of-day inclusive
+    return [f, t];
+  }
+  function inRange(s, r){ return s.date>=r[0] && s.date<r[1]; }
+
+  // ---- leaderboard (named teammates) ----
+  function renderBoard(panel, rows){
+    var map = {};
+    rows.forEach(function(s){
+      (s.teammates||[]).forEach(function(t){
+        if(!t.name) return;
+        var e = map[t.name] || (map[t.name]={cost:0,tokens:0,partial:false,ses:{}});
+        e.cost += t.cost; e.tokens += t.tokens; if(t.partial) e.partial=true; e.ses[s.id]=1;
+      });
+    });
+    var items = Object.keys(map).map(function(n){
+      var e=map[n]; return {name:n, cost:e.cost, tokens:e.tokens, partial:e.partial, sessions:Object.keys(e.ses).length};
+    }).sort(function(a,b){ return b.cost-a.cost; }).slice(0,14);
+    var wrap = panel.querySelector('[data-board]');
+    if(!wrap) return;
+    if(!items.length){ wrap.innerHTML = '<div class="empty small">No named teammates.</div>'; return; }
+    var max = 0.0001; items.forEach(function(t){ if(t.cost>max) max=t.cost; });
+    wrap.innerHTML = '<div class="board-list">'+items.map(function(t){
+      var pct = (t.cost/max)*100;
+      var sub = t.sessions>1 ? ' <span class="dim">×'+t.sessions+'</span>' : '';
+      return '<div class="bk"><div class="bk-label"><span class="bk-name">'+esc(t.name)+'</span>'+sub+'</div>'+
+        '<div class="bk-bar"><span style="width:'+pct.toFixed(1)+'%"></span></div>'+
+        '<div class="bk-num">'+esc(fmtCost(t.cost,t.partial))+'</div>'+
+        '<div class="bk-num dim">'+esc(fmtTokens(t.tokens))+'</div></div>';
+    }).join('')+'</div>';
+  }
+
+  // ---- daily chart over the selected range ----
+  function renderChart(panel, rows, r){
+    var wrap = panel.querySelector('[data-chart]');
+    if(!wrap) return;
+    var from = r[0]===0
+      ? (rows.length ? startOfDay(rows.reduce(function(m,s){return Math.min(m,s.date);}, nowMs)) : startOfDay(nowMs))
+      : startOfDay(r[0]);
+    var toEnd = r[1]===Infinity ? startOfDay(nowMs) : startOfDay(r[1]-1);
+    var days = Math.min(120, Math.max(1, Math.round((toEnd-from)/DAY)+1));
+    var buckets = {}, order = [];
+    for(var i=0;i<days;i++){ var key=msToIso(from+i*DAY); buckets[key]=0; order.push(key); }
+    rows.forEach(function(s){ var k=msToIso(startOfDay(s.date)); if(buckets.hasOwnProperty(k)) buckets[k]+=s.cost; });
+    var w=720,h=140,pad=24;
+    var max=0.0001; order.forEach(function(k){ if(buckets[k]>max) max=buckets[k]; });
+    var bw = order.length ? (w-pad*2)/order.length : 0;
+    var bars = order.map(function(k,i){
+      var bh=(buckets[k]/max)*(h-pad*2); var x=pad+i*bw; var y=h-pad-bh;
+      return '<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+Math.max(1,bw-3).toFixed(1)+'" height="'+Math.max(0,bh).toFixed(1)+'" rx="2"><title>'+esc(k)+': '+esc(fmtUsd(buckets[k]))+'</title></rect>';
+    }).join('');
+    wrap.innerHTML = '<svg viewBox="0 0 '+w+' '+h+'" class="bars" preserveAspectRatio="none">'+bars+'</svg>';
+  }
+
+  // ---- per-panel tree filter: date AND workspace AND search; patches rollups ----
+  function makeApplyTree(panel){
     function checkedWs(){
       var set = {};
-      panel.querySelectorAll('input[data-filter="workspace"]').forEach(function(cb){
-        if(cb.checked) set[cb.value] = true;
-      });
+      panel.querySelectorAll('input[data-filter="workspace"]').forEach(function(cb){ if(cb.checked) set[cb.value]=true; });
       return set;
     }
     function term(){
       var el = panel.querySelector('input[data-filter="search"]');
       return (el && el.value ? el.value : '').toLowerCase();
     }
-    function apply(){
-      var wss = checkedWs();
-      var t = term();
+    return function(){
+      var r = range(), wss = checkedWs(), t = term();
       panel.querySelectorAll('.tnode.level-workspace').forEach(function(ws){
-        var wsName = ws.getAttribute('data-workspace');
-        var wsOn = !!wss[wsName];
-        var anyVisible = false;
+        var wsOn = !!wss[ws.getAttribute('data-workspace')];
+        var anyVisible=false, sumC=0, sumT=0, anyP=false;
         ws.querySelectorAll('.tnode.level-session').forEach(function(se){
-          var label = (se.getAttribute('data-session') || '').toLowerCase();
-          var on = wsOn && (!t || label.indexOf(t) >= 0);
+          var label = (se.getAttribute('data-session')||'').toLowerCase();
+          var date = +se.getAttribute('data-date');
+          var on = wsOn && (!t || label.indexOf(t)>=0) && date>=r[0] && date<r[1];
           se.classList.toggle('hidden', !on);
-          if(on) anyVisible = true;
+          if(on){
+            anyVisible=true;
+            sumC += +se.getAttribute('data-cost');
+            sumT += +se.getAttribute('data-tokens');
+            if(se.getAttribute('data-partial')==='1') anyP=true;
+          }
         });
+        var row = ws.querySelector('.tnode-row');
+        if(row){
+          var cEl=row.querySelector('.tnode-cost'), tEl=row.querySelector('.tnode-tokens');
+          if(cEl) cEl.textContent = fmtCost(sumC, anyP);
+          if(tEl) tEl.textContent = fmtTokens(sumT);
+        }
         ws.classList.toggle('hidden', !anyVisible);
       });
-    }
+    };
+  }
+  panels.forEach(function(panel){
+    var applyTree = makeApplyTree(panel);
+    panel.__applyTree = applyTree;
     panel.querySelectorAll('input[data-filter]').forEach(function(el){
-      el.addEventListener('input', apply);
-      el.addEventListener('change', apply);
+      el.addEventListener('input', applyTree);
+      el.addEventListener('change', applyTree);
     });
   });
 
+  // ---- recompute everything for the selected range ----
+  function recompute(){
+    var r = range();
+    var sel = DATA.filter(function(s){ return inRange(s, r); });
+    var tc=0, tk=0, anyP=false;
+    sel.forEach(function(s){ tc+=s.cost; tk+=s.tokens; if(s.partial) anyP=true; });
+    var selCost=document.getElementById('sel-cost');
+    var selTok=document.getElementById('sel-tokens');
+    var selSes=document.getElementById('sel-sessions');
+    if(selCost) selCost.textContent = sel.length ? fmtCost(tc, anyP) : '—';
+    if(selTok) selTok.textContent = fmtTokens(tk)+' tokens';
+    if(selSes) selSes.textContent = sel.length + (sel.length===1?' session':' sessions');
+
+    var byAcc = {};
+    sel.forEach(function(s){ (byAcc[s.account] = byAcc[s.account] || []).push(s); });
+
+    panels.forEach(function(panel){
+      var acc = panel.getAttribute('data-acc-panel');
+      var rows = byAcc[acc] || [];
+      var total=0, partial=false;
+      rows.forEach(function(s){ total+=s.cost; if(s.partial) partial=true; });
+      tabs.forEach(function(tab){
+        if(tab.getAttribute('data-acc-tab')!==acc) return;
+        var totEl = tab.querySelector('[data-acc-total]');
+        if(totEl) totEl.textContent = fmtCost(total, partial);
+      });
+      renderBoard(panel, rows);
+      renderChart(panel, rows, r);
+      panel.__applyTree();
+    });
+  }
+
+  // presets
+  document.querySelectorAll('.preset').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var p = btn.getAttribute('data-preset');
+      if(p==='all') setRange(startOfDay(minDate), nowMs);
+      else setRange(startOfDay(nowMs)-(+p-1)*DAY, nowMs);
+      recompute();
+    });
+  });
+  fromEl.addEventListener('change', recompute);
+  toEl.addEventListener('change', recompute);
+
   // Workspaces expanded by default so sessions are visible at a glance.
   document.querySelectorAll('.tnode.level-workspace').forEach(function(w){ w.classList.add('open'); });
+
+  recompute();
 })();
 `;
 
@@ -329,4 +512,9 @@ function esc(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+/** JSON for safe inline <script> embedding: neutralise "<" so no tag can close. */
+function jsonScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
 }
