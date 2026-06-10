@@ -192,6 +192,50 @@ export interface FlatSession {
   lastActivity: number;
 }
 
+/** A teammate's cost summary inside an embedded ReportSession. */
+export interface ReportTeammate {
+  name: string | null; // null for one-off / unnamed teammates
+  cost: number;
+  tokens: number;
+  partial: boolean;
+}
+
+/**
+ * Flat, self-contained per-session record embedded as JSON in the HTML report
+ * so the client can recompute the whole report for any date range without a
+ * round-trip. Carries only what the client recompute needs: totals for the
+ * KPI/tab/tree rollups and named-teammate costs for the leaderboard.
+ */
+export interface ReportSession {
+  id: string;
+  account: string; // account label
+  workspace: string; // workspace title (or "unknown workspace")
+  date: number; // lastActivity epoch ms
+  cost: number;
+  tokens: number;
+  partial: boolean;
+  teammates: ReportTeammate[];
+}
+
+/** Build the embedded per-session records the client recompute runs on. */
+export function buildReportSessions(views: SessionView[]): ReportSession[] {
+  return views.map((v) => ({
+    id: v.id,
+    account: v.account.label,
+    workspace: v.workspace?.title ?? UNKNOWN_WS,
+    date: v.lastActivity,
+    cost: v.cost.cost,
+    tokens: v.cost.tokens,
+    partial: v.cost.partial,
+    teammates: v.teammates.map((t) => ({
+      name: t.name ?? null,
+      cost: t.cost.cost,
+      tokens: t.cost.tokens,
+      partial: t.cost.partial,
+    })),
+  }));
+}
+
 /**
  * Everything the report shows for a single Claude account. The account is the
  * top-level partition: a section never mixes data from two accounts.

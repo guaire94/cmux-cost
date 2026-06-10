@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderHtml, type ReportData } from "./render-html.js";
-import { buildAccountSections, type SessionView } from "./aggregate.js";
+import { buildAccountSections, buildReportSessions, type SessionView } from "./aggregate.js";
 import { emptyUsage, type Account, type Workspace } from "./types.js";
 
 const ACC: Account = { dir: "/h/.claude-talabat", label: "Talabat" };
@@ -34,12 +34,14 @@ const NOW = 1_700_000_000_000;
 
 function data(over: Partial<ReportData> & { sessions?: SessionView[] } = {}): ReportData {
   const { sessions, ...rest } = over;
+  const views = sessions ?? defaultSessions;
   return {
     generatedAt: NOW,
     currency: "USD",
     totals: { today: c(1, 100), week: c(2, 200), month: c(3, 300), all: c(4, 400) },
     warnings: [],
-    accounts: buildAccountSections(sessions ?? defaultSessions, NOW),
+    accounts: buildAccountSections(views, NOW),
+    sessions: buildReportSessions(views),
     ...rest,
   };
 }
@@ -86,5 +88,29 @@ describe("renderHtml", () => {
   it("renders an empty state with no sessions", () => {
     const html = renderHtml(data({ sessions: [] }));
     expect(html).toContain("No sessions found.");
+  });
+
+  it("renders the date-range filter bar with presets", () => {
+    const html = renderHtml(data());
+    expect(html).toContain('id="flt-from"');
+    expect(html).toContain('id="flt-to"');
+    expect(html).toContain('data-preset="7"');
+    expect(html).toContain('data-preset="all"');
+  });
+
+  it("embeds per-session records as JSON for client recompute", () => {
+    const html = renderHtml(data());
+    expect(html).toContain('id="report-data"');
+    // the session id and its account label travel in the embedded payload
+    expect(html).toContain('"id":"abcdef12-3456"');
+    expect(html).toContain('"account":"Talabat"');
+    // tree session nodes expose a machine-readable date for filtering
+    expect(html).toContain('data-date="1700000000000"');
+  });
+
+  it("escapes '<' in the embedded JSON so no tag can close the script early", () => {
+    const html = renderHtml(data());
+    expect(html).not.toContain("</script><");
+    expect(html).toContain("application/json");
   });
 });

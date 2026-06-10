@@ -1,5 +1,6 @@
 import {
   buildAccountSections,
+  buildReportSessions,
   buildSessionView,
   windowTotals,
   type SessionView,
@@ -52,6 +53,7 @@ export function buildReportData(loaded: LoadedViews, nowMs: number): ReportData 
     currency: loaded.cfg.currency,
     totals: windowTotals(loaded.views, nowMs),
     accounts: buildAccountSections(loaded.views, nowMs),
+    sessions: buildReportSessions(loaded.views),
     warnings,
   };
 }
