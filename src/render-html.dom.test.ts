@@ -74,15 +74,17 @@ describe("report date filter (DOM)", () => {
   it("defaults to the last 30 days and totals every session in range", () => {
     // all three are within 30 days → 10 + 3 + 7 = 20
     expect(doc.getElementById("sel-cost")!.textContent).toBe("$20.00");
-    expect(doc.getElementById("sel-sessions")!.textContent).toBe("3 sessions");
+    expect(doc.getElementById("sel-sessions")!.textContent).toBe("3");
   });
 
-  it("narrows the total when a 7-day preset is clicked", () => {
+  it("narrows the prominent KPI band when a 7-day preset is clicked", () => {
     const btn = doc.querySelector('.preset[data-preset="7"]') as HTMLButtonElement;
     btn.dispatchEvent(new doc.defaultView!.Event("click"));
     // only today (10) and 5d ago (3) fall in the last 7 days → 13
     expect(doc.getElementById("sel-cost")!.textContent).toBe("$13.00");
-    expect(doc.getElementById("sel-sessions")!.textContent).toBe("2 sessions");
+    expect(doc.getElementById("sel-sessions")!.textContent).toBe("2");
+    // per-day average over the 7-day window: 13 / 7 = 1.857… → $1.86
+    expect(doc.getElementById("sel-avg")!.textContent).toBe("$1.86");
   });
 
   it("hides out-of-range sessions in the breakdown tree", () => {

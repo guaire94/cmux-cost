@@ -24,23 +24,32 @@ export interface ReportData {
 export function renderHtml(data: ReportData): string {
   const { currency } = data;
 
-  const kpis = [
-    ["Today", data.totals.today],
-    ["Last 7 days", data.totals.week],
-    ["Last 30 days", data.totals.month],
-    ["All time", data.totals.all],
-  ] as const;
-
-  const kpiHtml = kpis
-    .map(
-      ([label, c]) => `
+  // The KPI band reflects the SELECTED date range and is recomputed client-side.
+  // Server-render it with the 30-day totals (the default range) as a no-JS
+  // fallback; recompute() overwrites these on load and on every filter change.
+  const totalSessions = data.accounts.reduce((n, a) => n + a.sessions, 0);
+  const fb = data.totals.month;
+  const kpiHtml = `
       <div class="kpi">
-        <div class="kpi-label">${esc(label)}</div>
-        <div class="kpi-value">${esc(fmtCost(c, currency))}</div>
-        <div class="kpi-sub">${esc(fmtTokens(c.tokens))} tokens</div>
-      </div>`,
-    )
-    .join("");
+        <div class="kpi-label">Total</div>
+        <div class="kpi-value" id="sel-cost">${esc(fmtCost(fb, currency))}</div>
+        <div class="kpi-sub">selected period</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Tokens</div>
+        <div class="kpi-value" id="sel-tokens">${esc(fmtTokens(fb.tokens))}</div>
+        <div class="kpi-sub">in range</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Sessions</div>
+        <div class="kpi-value" id="sel-sessions">${totalSessions}</div>
+        <div class="kpi-sub">in range</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Per day</div>
+        <div class="kpi-value" id="sel-avg">—</div>
+        <div class="kpi-sub">avg / day</div>
+      </div>`;
 
   const warnHtml = data.warnings.length
     ? `<div class="warn">⚠ ${data.warnings.map(esc).join(" · ")}</div>`
@@ -74,14 +83,9 @@ ${warnHtml}
   <button class="preset" data-preset="7">7d</button>
   <button class="preset" data-preset="30">30d</button>
   <button class="preset" data-preset="all">All</button>
-  <span class="range-sum">
-    <strong id="sel-cost">—</strong>
-    <span class="dim" id="sel-tokens"></span>
-    <span class="dim" id="sel-sessions"></span>
-  </span>
 </section>
 <section class="global">
-  <div class="global-label">All accounts</div>
+  <div class="global-label">All accounts · selected period</div>
   <div class="kpis">${kpiHtml}</div>
 </section>
 ${body}
@@ -463,9 +467,16 @@ const JS = `
     var selCost=document.getElementById('sel-cost');
     var selTok=document.getElementById('sel-tokens');
     var selSes=document.getElementById('sel-sessions');
+    var selAvg=document.getElementById('sel-avg');
     if(selCost) selCost.textContent = sel.length ? fmtCost(tc, anyP) : '—';
-    if(selTok) selTok.textContent = fmtTokens(tk)+' tokens';
-    if(selSes) selSes.textContent = sel.length + (sel.length===1?' session':' sessions');
+    if(selTok) selTok.textContent = fmtTokens(tk);
+    if(selSes) selSes.textContent = ''+sel.length;
+    if(selAvg){
+      var fromD = r[0]===0 ? startOfDay(minDate) : startOfDay(r[0]);
+      var toD = r[1]===Infinity ? startOfDay(nowMs) : startOfDay(r[1]-1);
+      var days = Math.max(1, Math.round((toD-fromD)/DAY)+1);
+      selAvg.textContent = sel.length ? fmtUsd(tc/days) : '—';
+    }
 
     var byAcc = {};
     sel.forEach(function(s){ (byAcc[s.account] = byAcc[s.account] || []).push(s); });
