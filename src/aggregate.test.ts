@@ -5,6 +5,7 @@ import {
   buildTree,
   dailySeries,
   flatSessions,
+  prettyModel,
   prettyProject,
   startOfLocalDay,
   teammateLeaderboard,
@@ -185,6 +186,16 @@ describe("dailySeries", () => {
 describe("prettyProject", () => {
   it("keeps the last two path segments", () => {
     expect(prettyProject("-Users-me-Documents-projects-klozy")).toBe("projects/klozy");
+  });
+});
+
+describe("prettyModel", () => {
+  it("strips a trailing 8-digit date stamp", () => {
+    expect(prettyModel("claude-3-5-sonnet-20241022")).toBe("claude-3-5-sonnet");
+  });
+  it("leaves ids without a date stamp untouched", () => {
+    expect(prettyModel("claude-opus-4-8")).toBe("claude-opus-4-8");
+    expect(prettyModel("<synthetic>")).toBe("<synthetic>");
   });
 });
 

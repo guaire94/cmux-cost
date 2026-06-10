@@ -146,6 +146,11 @@ export function prettyProject(slug: string): string {
   return parts.slice(-2).join("/") || slug;
 }
 
+/** Display-only model label: drop a trailing 8-digit date stamp. */
+export function prettyModel(raw: string): string {
+  return raw.replace(/-?\d{8}$/, "");
+}
+
 export interface TreeNode {
   key: string;
   label: string;
