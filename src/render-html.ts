@@ -177,7 +177,7 @@ function treeNode(n: TreeNode, currency: string, now: number): string {
       <span class="tnode-label">${esc(n.label)}</span>
       <span class="tnode-cost">${esc(fmtCost(n.cost, currency))}</span>
       <span class="tnode-tokens dim">${esc(fmtTokens(n.cost.tokens))}</span>
-      <span class="tnode-when dim">${esc(fmtTimeAgo(n.lastActivity, now))}</span>
+      <span class="tnode-when dim">${n.level === "model" ? "" : esc(fmtTimeAgo(n.lastActivity, now))}</span>
     </div>
     ${kids}
   </div>`;
@@ -257,6 +257,7 @@ h3 .hint{text-transform:none;letter-spacing:0;font-weight:400}
 .tnode-row.expandable{cursor:pointer}.tnode-row.expandable:hover{background:#1c2128}
 .tnode-label{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .level-workspace>.tnode-row .tnode-label{color:#79c0ff;font-weight:600}
+.level-model>.tnode-row .tnode-label{color:var(--dim);font-weight:400}
 .tnode-cost,.tnode-tokens,.tnode-when{text-align:right;font-variant-numeric:tabular-nums}
 .caret{display:inline-block;transition:transform .12s;color:var(--dim)}
 .caret-spacer{display:inline-block;width:1em}
