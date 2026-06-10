@@ -1,6 +1,6 @@
 import { addCost, costByModel, mergeByModel, zeroCost } from "./cost.js";
 import type { PriceTable } from "./pricing.js";
-import type { Account, CostResult, Session, Workspace } from "./types.js";
+import type { Account, CostResult, Session, Usage, Workspace } from "./types.js";
 
 export interface TeammateView {
   id: string;
@@ -8,6 +8,13 @@ export interface TeammateView {
   name?: string;
   label: string;
   cost: CostResult;
+  models?: ModelCost[];
+}
+
+export interface ModelCost {
+  model: string; // raw model id (key of byModel)
+  display: string; // prettified label for the UI
+  cost: CostResult; // cost + usage for this one model
 }
 
 export interface SessionView {
@@ -21,6 +28,7 @@ export interface SessionView {
   cost: CostResult; // main + teammates
   mainCost: CostResult; // the lead/orchestrator transcript alone
   teammates: TeammateView[];
+  mainModels?: ModelCost[];
 }
 
 export interface TeammateTotal {
@@ -49,6 +57,7 @@ export function buildSessionView(session: Session, prices: PriceTable): SessionV
       name: t.name,
       label: t.label ?? t.id,
       cost: costByModel(t.byModel, prices),
+      models: modelCosts(t.byModel, prices),
     }))
     .sort((a, b) => b.cost.cost - a.cost.cost);
   const allUsage = mergeByModel([
@@ -62,8 +71,20 @@ export function buildSessionView(session: Session, prices: PriceTable): SessionV
     lastActivity: session.lastActivity,
     cost: costByModel(allUsage, prices),
     mainCost: costByModel(session.main.byModel, prices),
+    mainModels: modelCosts(session.main.byModel, prices),
     teammates,
   };
+}
+
+/** Cost each model in a usage map separately, highest cost first. */
+export function modelCosts(byModel: Map<string, Usage>, prices: PriceTable): ModelCost[] {
+  return [...byModel.entries()]
+    .map(([model, u]) => ({
+      model,
+      display: prettyModel(model),
+      cost: costByModel(new Map([[model, u]]), prices),
+    }))
+    .sort((a, b) => b.cost.cost - a.cost.cost);
 }
 
 /**
@@ -146,10 +167,15 @@ export function prettyProject(slug: string): string {
   return parts.slice(-2).join("/") || slug;
 }
 
+/** Display-only model label: drop a trailing 8-digit date stamp. */
+export function prettyModel(raw: string): string {
+  return raw.replace(/-?\d{8}$/, "");
+}
+
 export interface TreeNode {
   key: string;
   label: string;
-  level: "account" | "workspace" | "session" | "teammate";
+  level: "account" | "workspace" | "session" | "teammate" | "model";
   cost: CostResult;
   lastActivity: number;
   children: TreeNode[];
@@ -250,26 +276,43 @@ function workspaceNodes(accountLabel: string, views: SessionView[]): TreeNode[] 
   return nodes.sort(byCostDesc);
 }
 
+function modelNodes(
+  models: ModelCost[] | undefined,
+  lastActivity: number,
+  parentKey: string,
+): TreeNode[] {
+  return (models ?? []).map((m) => ({
+    key: `${parentKey}:md:${m.model}`,
+    label: m.display,
+    level: "model" as const,
+    cost: m.cost,
+    lastActivity,
+    children: [],
+  }));
+}
+
 function sessionNode(v: SessionView): TreeNode {
+  const leadKey = `tm:${v.id}:lead`;
   const mates: TreeNode[] = [
     {
-      key: `tm:${v.id}:lead`,
+      key: leadKey,
       label: "lead",
       level: "teammate",
       cost: v.mainCost,
       lastActivity: v.lastActivity,
-      children: [],
+      children: modelNodes(v.mainModels, v.lastActivity, leadKey),
     },
-    ...v.teammates.map(
-      (t): TreeNode => ({
-        key: `tm:${v.id}:${t.id}`,
+    ...v.teammates.map((t): TreeNode => {
+      const key = `tm:${v.id}:${t.id}`;
+      return {
+        key,
         label: t.name ?? t.label,
         level: "teammate",
         cost: t.cost,
         lastActivity: v.lastActivity,
-        children: [],
-      }),
-    ),
+        children: modelNodes(t.models, v.lastActivity, key),
+      };
+    }),
   ];
   mates.sort(byCostDesc);
   // Prefer the cmux tab title (the name the user gave the session); fall back to

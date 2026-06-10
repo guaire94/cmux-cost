@@ -5,6 +5,8 @@ import {
   buildTree,
   dailySeries,
   flatSessions,
+  modelCosts,
+  prettyModel,
   prettyProject,
   startOfLocalDay,
   teammateLeaderboard,
@@ -81,6 +83,37 @@ describe("buildSessionView", () => {
     expect(v.mainCost.cost).toBeCloseTo(1000 * 3e-6, 9);
     expect(v.teammates.map((t) => t.name)).toEqual(["big-dev", "small-dev"]);
     expect(v.project).toBe("me/proj");
+  });
+
+  it("exposes per-model costs for the lead and each teammate", () => {
+    const s = session({
+      main: {
+        id: "s1",
+        path: "/x/s1.jsonl",
+        byModel: new Map([["claude-sonnet-4-6", usage({ input: 1000 })]]),
+      },
+      teammates: [
+        {
+          id: "t",
+          path: "/x/s1/subagents/agent-t.jsonl",
+          name: "dev",
+          label: "dev — t",
+          byModel: new Map([
+            ["claude-sonnet-4-6", usage({ output: 100 })],
+            ["claude-sonnet-4-6-x", usage({ output: 50 })],
+          ]),
+        },
+      ],
+    });
+    const v = buildSessionView(s, prices);
+    expect(v.mainModels?.map((m) => m.model)).toEqual(["claude-sonnet-4-6"]);
+    expect(v.teammates[0]!.models?.map((m) => m.model)).toEqual([
+      "claude-sonnet-4-6",
+      "claude-sonnet-4-6-x",
+    ]);
+    // per-model costs sum to the teammate aggregate
+    const sum = v.teammates[0]!.models!.reduce((n, m) => n + m.cost.cost, 0);
+    expect(sum).toBeCloseTo(v.teammates[0]!.cost.cost, 9);
   });
 });
 
@@ -188,6 +221,49 @@ describe("prettyProject", () => {
   });
 });
 
+describe("prettyModel", () => {
+  it("strips a trailing 8-digit date stamp", () => {
+    expect(prettyModel("claude-3-5-sonnet-20241022")).toBe("claude-3-5-sonnet");
+  });
+  it("leaves ids without a date stamp untouched", () => {
+    expect(prettyModel("claude-opus-4-8")).toBe("claude-opus-4-8");
+    expect(prettyModel("<synthetic>")).toBe("<synthetic>");
+  });
+});
+
+describe("modelCosts", () => {
+  const pt = new PriceTable(
+    parseOpenRouterModels({
+      data: [
+        { id: "anthropic/claude-sonnet-4.6", pricing: { prompt: "0.000003", completion: "0.000015" } },
+      ],
+    }),
+  );
+
+  it("returns one priced entry per model, sorted by cost desc", () => {
+    const byModel = new Map<string, Usage>([
+      ["claude-sonnet-4-6", usage({ input: 1000 })], // 1000 * 3e-6 = 0.003
+      ["claude-sonnet-4-6-cheap", usage({ input: 1 })],
+    ]);
+    // distinct keys both normalize to the same priced model
+    const res = modelCosts(byModel, pt);
+    expect(res.map((m) => m.model)).toEqual(["claude-sonnet-4-6", "claude-sonnet-4-6-cheap"]);
+    expect(res[0]!.cost.cost).toBeGreaterThan(res[1]!.cost.cost);
+    expect(res[0]!.display).toBe("claude-sonnet-4-6");
+  });
+
+  it("marks an entry partial when its price is unknown", () => {
+    const res = modelCosts(new Map([["mystery-model", usage({ input: 5 })]]), pt);
+    expect(res).toHaveLength(1);
+    expect(res[0]!.cost.partial).toBe(true);
+    expect(res[0]!.cost.cost).toBe(0);
+  });
+
+  it("returns [] for an empty map", () => {
+    expect(modelCosts(new Map(), pt)).toEqual([]);
+  });
+});
+
 function cost(n: number): CostResult {
   return {
     usage: { input: n, output: 0, cacheCreation: 0, cacheRead: 0 },
@@ -248,6 +324,40 @@ describe("buildTree", () => {
     const tree = buildTree([named, mkView("99887766aabb", tala, ws, 2)]);
     const sessions = tree[0]!.children[0]!.children;
     expect(sessions.map((s) => s.label)).toEqual(["Wire up auth", "99887766 · proj"]);
+  });
+});
+
+describe("model nodes in the tree", () => {
+  const tala: Account = { dir: "/h/.claude-talabat", label: "Talabat" };
+  const ws: Workspace = { id: "W1", title: "WS" };
+
+  it("adds level:'model' leaves under the lead and each teammate", () => {
+    const mc = (model: string, c: number): import("./aggregate.js").ModelCost => ({
+      model,
+      display: model,
+      cost: cost(c),
+    });
+    const v: SessionView = {
+      ...mkView("s1", tala, ws, 10),
+      mainModels: [mc("claude-opus-4-8", 6)],
+      teammates: [
+        {
+          id: "t",
+          name: "dev",
+          label: "dev",
+          cost: cost(4),
+          models: [mc("claude-opus-4-8", 3), mc("claude-haiku", 1)],
+        },
+      ],
+    };
+    const tree = buildTree([v]);
+    const sessionNode = tree[0]!.children[0]!.children[0]!;
+    const lead = sessionNode.children.find((n) => n.label === "lead")!;
+    expect(lead.children.map((n) => [n.level, n.label])).toEqual([["model", "claude-opus-4-8"]]);
+    const dev = sessionNode.children.find((n) => n.label === "dev")!;
+    expect(dev.children.map((n) => n.level)).toEqual(["model", "model"]);
+    // sorted by the ModelCost order they were given (already cost-desc)
+    expect(dev.children.map((n) => n.label)).toEqual(["claude-opus-4-8", "claude-haiku"]);
   });
 });
 
